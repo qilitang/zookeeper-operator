@@ -7,6 +7,8 @@ metadata:
     app.kubernetes.io/part-of: zookeeper-operator
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: zookeeper-operator
-  name: zookeepercluster-sample
+  name: zk1
 spec:
-  # TODO(user): Add fields here
+  replicas: 3
+  version: "3.5"
+  image: "registry.cn-hangzhou.aliyuncs.com/squids/zookeeper:3.5.10"
