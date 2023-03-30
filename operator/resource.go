@@ -242,48 +242,57 @@ func WithCustomConfig(cluster *zookeeperv1.ZookeeperCluster) string {
 }
 
 func withDefaultConfig(zc zookeeperv1.ZookeeperConfig) zookeeperv1.ZookeeperConfig {
-	cc := &zookeeperv1.ZookeeperConfig{}
+	defaultConfig := zookeeperv1.ZookeeperConfig{
+		InitLimit:                10,
+		TickTime:                 2000,
+		SyncLimit:                2,
+		GlobalOutstandingLimit:   1000,
+		PreAllocSize:             65536,
+		SnapCount:                10000,
+		CommitLogCount:           500,
+		SnapSizeLimitInKb:        4194304,
+		MaxClientCnxns:           60,
+		AutoPurgeSnapRetainCount: 3,
+	}
 
 	if zc.InitLimit == 0 {
-		cc.InitLimit = 10
+		zc.InitLimit = defaultConfig.InitLimit
 	}
 	if zc.TickTime == 0 {
-		cc.TickTime = 2000
+		zc.TickTime = defaultConfig.TickTime
 	}
 	if zc.SyncLimit == 0 {
-		cc.SyncLimit = 2
+		zc.SyncLimit = defaultConfig.SyncLimit
 	}
 	if zc.GlobalOutstandingLimit == 0 {
-		cc.GlobalOutstandingLimit = 1000
+		zc.GlobalOutstandingLimit = defaultConfig.GlobalOutstandingLimit
 	}
 	if zc.PreAllocSize == 0 {
-		cc.PreAllocSize = 65536
+		zc.PreAllocSize = defaultConfig.PreAllocSize
 	}
 	if zc.SnapCount == 0 {
-		cc.SnapCount = 10000
+		zc.SnapCount = defaultConfig.SnapCount
 	}
 	if zc.CommitLogCount == 0 {
-		cc.CommitLogCount = 500
+		zc.CommitLogCount = defaultConfig.CommitLogCount
 	}
 	if zc.SnapSizeLimitInKb == 0 {
-		cc.SnapSizeLimitInKb = 4194304
+		zc.SnapSizeLimitInKb = defaultConfig.SnapSizeLimitInKb
 	}
 	if zc.MaxClientCnxns == 0 {
-		cc.MaxClientCnxns = 60
+		zc.MaxClientCnxns = defaultConfig.MaxClientCnxns
 	}
 	if zc.MinSessionTimeout == 0 {
-		cc.MinSessionTimeout = 2 * zc.TickTime
+		zc.MinSessionTimeout = 2 * zc.TickTime
 	}
 	if zc.MaxSessionTimeout == 0 {
-		cc.MaxSessionTimeout = 20 * zc.TickTime
+		zc.MaxSessionTimeout = 20 * zc.TickTime
 	}
 	if zc.AutoPurgeSnapRetainCount == 0 {
-		cc.AutoPurgeSnapRetainCount = 3
+		zc.AutoPurgeSnapRetainCount = defaultConfig.AutoPurgeSnapRetainCount
 	}
-	if zc.AutoPurgePurgeInterval == 0 {
-		cc.AutoPurgePurgeInterval = 1
-	}
-	return *cc
+
+	return zc
 }
 
 func WithDynamicConfig(cluster *zookeeperv1.ZookeeperCluster) string {

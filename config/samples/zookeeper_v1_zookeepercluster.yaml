@@ -12,3 +12,8 @@ spec:
   replicas: 3
   version: "3.5"
   image: "registry.cn-hangzhou.aliyuncs.com/squids/zookeeper:3.5.10"
+  config:
+    initLimit: 10
+    tickTime: 2000
+    syncLimit: 20000
+    quorumListenOnAllIPs: true

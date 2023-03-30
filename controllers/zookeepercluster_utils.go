@@ -2,15 +2,20 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
 	options "github.com/qilitang/zookeeper-operator/common/options"
 	"github.com/qilitang/zookeeper-operator/common/status"
 	"github.com/qilitang/zookeeper-operator/operator"
 	"github.com/qilitang/zookeeper-operator/utils"
+	"github.com/samuel/go-zookeeper/zk"
+	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"time"
 )
 
 func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
@@ -52,7 +57,6 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 	if err != nil {
 		return err
 	}
-	cluster.Status.Replicas = int32(end)
 	// 按照顺序去创建 sts 资源
 	for i := start; nums > 0 && i <= end; i++ {
 		opts := make([]options.StatefulSetResourcesOpts, 0)
@@ -124,28 +128,23 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			log.Info("rolling update statefulset, statefulset is not ready, no update next set. ", "Statefulse.Name", set.Name)
 			break
 		}
-		// check update set
-		//log.Info("statefulse exists, begin sync", "Statefulse.Name", set.Name, "Statefulse.Namespae", set.Namespace)
-		//updateFlag, err := r.DoSyncSetUpdate(set, cluster, apis.DBRoleReplica)
-		//if err != nil {
-		//	return err
-		//}
-		//// In order to prevent the pod from being unable to start due to insufficient resources
-		//// after restarting with all the changed specifications, we changed to a rolling upgrade
-		//if updateFlag {
-		//	log.Info("rolling update statefulset success", "Statefulse.Name", set.Name)
-		//	return nil
-		//}
+
 
 	}
-
+	// 释放资源
+	if err := r.deleteReplicasResources(ctx, cluster); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (r *ZookeeperClusterReconciler) UpdateCluster(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
-
-	newCluster := cluster.DeepCopy()
-
+	newCluster := &zookeeperv1.ZookeeperCluster{}
+	_ = r.Get(ctx, client.ObjectKey{
+		Namespace: cluster.Namespace,
+		Name: cluster.Name,
+	}, newCluster)
+	newCluster = newCluster.DeepCopy()
 	zookeeperStatus := operator.ZookeeperClusterResourcesStatus{
 		Client:  r.Client,
 		Log:     r.Log.WithName("ZookeeperResourcesStatus"),
@@ -158,6 +157,82 @@ func (r *ZookeeperClusterReconciler) UpdateCluster(ctx context.Context, cluster 
 	}
 	if err := r.Status().Update(ctx, newCluster); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (r *ZookeeperClusterReconciler) ReConfigCluster(cluster *zookeeperv1.ZookeeperCluster, newReplicas, oldReplicas int32) error {
+	var hosts []string
+
+	for i := 0; i < int(oldReplicas); i++ {
+		setName := options.GetClusterReplicaSetName(cluster.Name, i)
+		hosts = append(hosts, options.GetConnection(setName, cluster.Namespace, i))
+	}
+	conn, _, err := zk.Connect(hosts, time.Second*5)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	var allServersHosts []string
+	for m := 0; m < int(newReplicas); m++ {
+		setName := options.GetClusterReplicaSetName(cluster.Name, m)
+		allServersHosts = append(allServersHosts, options.GetServiceDomainName(setName, cluster.Namespace, m))
+	}
+
+	_, err = conn.Reconfig(allServersHosts, -1)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context,cluster *zookeeperv1.ZookeeperCluster) error {
+	log := r.Log.WithValues("zookeeper cluster", "delete replica")
+	g, _ := errgroup.WithContext(ctx)
+	setList := &v1.StatefulSetList{}
+	matchLabels := utils.CopyMap(operator.NewDatabaseLabel(cluster))
+	setOpts := []client.ListOption{
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels(matchLabels),
+	}
+	if err := r.List(ctx, setList, setOpts...); err != nil {
+		log.Error(err, "Failed to list statefulsets",
+			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
+		return err
+	}
+	start, end := int(cluster.Spec.Replicas), len(setList.Items)+1
+	for i:=start; end > 0 && i<end; i++{
+		setName := options.GetClusterReplicaSetName(cluster.Name, i)
+		g.Go(func() error {
+			set := &v1.StatefulSet{}
+			err := r.Get(ctx, types.NamespacedName{Name: setName, Namespace: cluster.Namespace}, set)
+			if errors.IsNotFound(err){
+				return nil
+			}
+			if err !=nil {
+				return err
+			}
+			log.Info(fmt.Sprintf("will delete replica %s", set.Name))
+			return r.Client.Delete(ctx, set)
+		})
+		g.Go(func() error {
+			svcName := setName + "-headless"
+			svc := &corev1.Service{}
+			err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: cluster.Namespace}, svc)
+			if errors.IsNotFound(err){
+				return nil
+			}
+			if err !=nil {
+				return err
+			}
+			return r.Delete(ctx, svc)
+		})
+		if err := g.Wait(); err != nil {
+			log.Info("remove resources is failed: %v", err)
+			return err
+		}
+		continue
 	}
 	return nil
 }

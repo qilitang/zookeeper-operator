@@ -136,6 +136,14 @@ func GetClusterSlaveSetName(clusterName string, index int) string {
 	return fmt.Sprintf("%s-slave%d", clusterName, index)
 }
 
+func GetServiceDomainName(setName, namespace string, id int) string {
+	return fmt.Sprintf("server.%d=%s:2888:3888:participant;0.0.0.0:2181", id, setName+"-headless."+namespace+".svc.cluster.local")
+}
+
+func GetConnection(setName, namespace string, id int) string {
+	return fmt.Sprintf("%s:2181", setName+"-headless."+namespace+".svc.cluster.local")
+}
+
 func GetClusterDBHeadless(namespace string, podName string) string {
 	name := podName[:len(podName)-2]
 	return fmt.Sprintf("%s-headless.%s.svc.cluster.local", name, namespace)
