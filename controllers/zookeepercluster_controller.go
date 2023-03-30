@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"time"
 )
 
 // ZookeeperClusterReconciler reconciles a ZookeeperCluster object
@@ -73,8 +74,8 @@ func (r *ZookeeperClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 	if err := r.syncReplicas(ctx, cluster); err != nil {
-		log.Info(fmt.Sprintf("cluster %s has be deleted, skip", cluster.Name))
-		return ctrl.Result{}, err
+		log.Info(fmt.Sprintf("cluster %s sync replica failed, after 30s retry", cluster.Name))
+		return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, err
 	}
 
 	if err := r.UpdateCluster(ctx, cluster); err != nil {
@@ -99,36 +100,10 @@ func (r *ZookeeperClusterReconciler) setUpdatePredicate() predicate.Predicate {
 	}
 }
 
-func (r *ZookeeperClusterReconciler) clusterUpdatePredicate() predicate.Predicate {
-	return predicate.Funcs{
-		UpdateFunc: func(event event.UpdateEvent) bool {
-			curCluster := event.ObjectNew.(*zookeeperv1.ZookeeperCluster)
-			oldCluster := event.ObjectOld.(*zookeeperv1.ZookeeperCluster)
-			// Check if the spec has changed
-			if !reflect.DeepEqual(curCluster.Spec.Replicas, oldCluster.Spec.Replicas) {
-				// 配置文件发生了更改。 需要 执行 add or delete 命令 加入或者删除节点
-				err := r.ReConfigCluster(curCluster, curCluster.Spec.Replicas, oldCluster.Spec.Replicas)
-				if err != nil {
-					r.Log.Info(fmt.Sprintf("cluster %v reconfig failed", err))
-					return false
-				}
-				return true
-			}
-			return true
-		},
-		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
-			r.Log.Info(fmt.Sprintf("cluster %s has be deleted", deleteEvent.Object.GetName()))
-			return false
-		},
-	}
-
-	return nil
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ZookeeperClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&zookeeperv1.ZookeeperCluster{},builder.WithPredicates(r.clusterUpdatePredicate())).
+		For(&zookeeperv1.ZookeeperCluster{}).
 		Owns(&appsv1.StatefulSet{}, builder.WithPredicates(r.setUpdatePredicate())).
 		Complete(r)
 }

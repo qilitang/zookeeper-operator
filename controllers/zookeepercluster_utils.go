@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"strings"
 	"time"
 )
 
@@ -135,6 +136,10 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 	if err := r.deleteReplicasResources(ctx, cluster); err != nil {
 		return err
 	}
+
+	if err := r.reConfigCluster(ctx , cluster); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -156,32 +161,6 @@ func (r *ZookeeperClusterReconciler) UpdateCluster(ctx context.Context, cluster 
 		return err
 	}
 	if err := r.Status().Update(ctx, newCluster); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *ZookeeperClusterReconciler) ReConfigCluster(cluster *zookeeperv1.ZookeeperCluster, newReplicas, oldReplicas int32) error {
-	var hosts []string
-
-	for i := 0; i < int(oldReplicas); i++ {
-		setName := options.GetClusterReplicaSetName(cluster.Name, i)
-		hosts = append(hosts, options.GetConnection(setName, cluster.Namespace, i))
-	}
-	conn, _, err := zk.Connect(hosts, time.Second*5)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	var allServersHosts []string
-	for m := 0; m < int(newReplicas); m++ {
-		setName := options.GetClusterReplicaSetName(cluster.Name, m)
-		allServersHosts = append(allServersHosts, options.GetServiceDomainName(setName, cluster.Namespace, m))
-	}
-
-	_, err = conn.Reconfig(allServersHosts, -1)
-	if err != nil {
 		return err
 	}
 	return nil
@@ -233,6 +212,44 @@ func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context
 			return err
 		}
 		continue
+	}
+	return nil
+}
+
+func (r *ZookeeperClusterReconciler) reConfigCluster (ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
+	// 获取所有的原 config 然后做对比， 如果不一致 则进行 reconfig
+	var hosts []string
+	setName := options.GetClusterReplicaSetName(cluster.Name, 0)
+	hosts = append(hosts, options.GetConnection(setName, cluster.Namespace, 0))
+	conn, _, err := zk.Connect(hosts, time.Second*5)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	configBytes,_, err := conn.Get("/zookeeper/config")
+	if err != nil {
+		return err
+	}
+	config := string(configBytes)
+	// 判断 server 个数，
+	var serverCount int = 0
+	for _,server := range strings.Split(config, "\n") {
+		if strings.Contains(server,"server.") {
+			serverCount +=1
+		}
+	}
+
+	if serverCount < int(cluster.Spec.Replicas){
+		var allServersHosts []string
+		for m := 0; m < int(cluster.Spec.Replicas); m++ {
+			setName := options.GetClusterReplicaSetName(cluster.Name, m)
+			allServersHosts = append(allServersHosts, options.GetServiceDomainName(setName, cluster.Namespace, m))
+		}
+
+		_, err = conn.Reconfig(allServersHosts, -1)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
