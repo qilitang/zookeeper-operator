@@ -128,7 +128,7 @@ func (t StatefulSetResourcesStatus) IsFailed() (bool, *ProgressStep) {
 			Log:    t.Log.WithName("PodResourcesStatus"),
 		}
 		isFail, subStep := podRes.IsFailed()
-		t.Log.V(3).Info(fmt.Sprintf("check pod status [%s] get step: [%v] ", pod.Status.Phase,subStep.ToString("", 0)))
+		t.Log.V(3).Info(fmt.Sprintf("check pod status [%s] get step: [%v] ", pod.Status.Phase, subStep.ToString("", 0)))
 		step.AddChild(subStep)
 		if isFail {
 			t.Log.Info(fmt.Sprintf("pod [%s] is failed status [%s]. ", pod.Name, step.ToString("", 0)))

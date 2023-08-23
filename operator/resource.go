@@ -7,7 +7,6 @@ import (
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
 	options "github.com/qilitang/zookeeper-operator/common/options"
 	"github.com/qilitang/zookeeper-operator/utils"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -175,7 +174,7 @@ func (t ClusterSubResources) CreateDynamicConfigMap() (interface{}, bool, error)
 	return &configmap, true, nil
 }
 
-func (t ClusterSubResources) CreateReplicaHeadlessService(set *appsv1.StatefulSet) options.ResourcesCreator {
+func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) options.ResourcesCreator {
 	return func() (res interface{}, canUpdate bool, err error) {
 		baseService, canUpdate, err := t.createBaseService()
 		if err != nil {
@@ -190,11 +189,13 @@ func (t ClusterSubResources) CreateReplicaHeadlessService(set *appsv1.StatefulSe
 
 		// headless
 		service.Spec.Type = corev1.ServiceTypeClusterIP
-		//service.Spec.ClusterIP = corev1.ClusterIPNone
+		service.Spec.ClusterIP = corev1.ClusterIPNone
 
-		service.Name = set.Name + "-headless"
-		service.Spec.Selector = utils.CopyMap(set.Labels)
-		service.Labels = utils.CopyMap(set.Labels)
+		service.Name = setName + "-headless"
+		labels := make(map[string]string, 0)
+		labels[utils.SetName] = setName
+		service.Spec.Selector = utils.CopyMap(labels)
+		service.Labels = utils.CopyMap(labels)
 
 		return service, canUpdate, nil
 	}
@@ -211,7 +212,7 @@ func NewDatabaseLabel(cluster *zookeeperv1.ZookeeperCluster) map[string]string {
 func WithCustomConfig(cluster *zookeeperv1.ZookeeperCluster) string {
 	b := &bytes.Buffer{}
 	utils.Iline(b, 0, "# custom zookeeper config")
-	utils.Iline(b, 0, "4lw.commands.whitelist=cons, envi, conf, crst, srvr, stat, mntr, ruok")
+	utils.Iline(b, 0, "4lw.commands.whitelist=*")
 	utils.Iline(b, 0, "dataDir=/data")
 	utils.Iline(b, 0, "standaloneEnabled=false")
 	utils.Iline(b, 0, "reconfigEnabled=true")
@@ -219,7 +220,6 @@ func WithCustomConfig(cluster *zookeeperv1.ZookeeperCluster) string {
 	utils.Iline(b, 0, "clientPort=2181")
 	utils.Iline(b, 0, "metricsProvider.className=org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider")
 	//utils.Iline(b, 0, "metricsProvider.httpPort=7000")
-	utils.Iline(b, 0, "metricsProvider.exportJvmInfo=true")
 	utils.Iline(b, 0, "metricsProvider.exportJvmInfo=true")
 	utils.Iline(b, 0, "admin.serverPort=8080")
 	utils.Iline(b, 0, "dynamicConfigFile=/conf/zoo.cfg.dynamic")
@@ -243,9 +243,9 @@ func WithCustomConfig(cluster *zookeeperv1.ZookeeperCluster) string {
 
 func withDefaultConfig(zc zookeeperv1.ZookeeperConfig) zookeeperv1.ZookeeperConfig {
 	defaultConfig := zookeeperv1.ZookeeperConfig{
-		InitLimit:                10,
+		InitLimit:                5,
 		TickTime:                 2000,
-		SyncLimit:                2,
+		SyncLimit:                10,
 		GlobalOutstandingLimit:   1000,
 		PreAllocSize:             65536,
 		SnapCount:                10000,
@@ -299,11 +299,23 @@ func WithDynamicConfig(cluster *zookeeperv1.ZookeeperCluster) string {
 	b := &bytes.Buffer{}
 	for i := 0; i < int(cluster.Spec.Replicas); i++ {
 		setName := options.GetClusterReplicaSetName(cluster.Name, i)
-		//if setName == stsName {
-		//	utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888;2181", i, "0.0.0.0"))
-		//	continue
-		//}
-		utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:participant;0.0.0.0:2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
+		if i == int(cluster.Spec.Replicas)-1 {
+			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:observer;2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
+		} else {
+			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:participant;2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
+		}
+	}
+	return b.String()
+}
+func WithDynamicConfig1(cluster *zookeeperv1.ZookeeperCluster, index int) string {
+	b := &bytes.Buffer{}
+	for i := 0; i < index+1; i++ {
+		setName := options.GetClusterReplicaSetName(cluster.Name, i)
+		if i == int(cluster.Spec.Replicas)-1 {
+			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:observer;0.0.0.0:2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
+		} else {
+			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:participant;0.0.0.0:2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
+		}
 	}
 	return b.String()
 }

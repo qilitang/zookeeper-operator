@@ -73,8 +73,7 @@ func CreateZookeeperContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperIm
 					Command: []string{"/bin/bash", "-c", "echo ruok | timeout 2 nc -w 2 localhost 2181 | grep imok"},
 				},
 			},
-			PeriodSeconds:       3,
-			InitialDelaySeconds: 20,
+			PeriodSeconds: 5,
 		},
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -101,6 +100,7 @@ func WithInitContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperImage str
 
 func CreateInitContainer(cluster *zookeeperv1.ZookeeperCluster, initImageName string, index int) (*corev1.Container, error) {
 	env := NewInitContainerEnv(cluster, index)
+
 	initContainer := &corev1.Container{
 		Env:             env,
 		Name:            "myid",
@@ -109,13 +109,21 @@ func CreateInitContainer(cluster *zookeeperv1.ZookeeperCluster, initImageName st
 		Command: []string{
 			"/bin/sh",
 			"-c",
-			"echo $(MY_ID) > /data/myid",
+			fmt.Sprintf(
+				"echo $(MY_ID) > /data/myid && echo \"%s\" > /conf/zoo.cfg && echo \"%s\" > /conf/zoo.cfg.dynamic",
+				WithCustomConfig(cluster),
+				WithDynamicConfig1(cluster, index),
+			),
 		},
 	}
 	initContainer.VolumeMounts = []corev1.VolumeMount{
 		{
 			MountPath: "/data",
 			Name:      "data",
+		},
+		{
+			MountPath: "/conf",
+			Name:      "conf",
 		},
 	}
 
@@ -197,21 +205,19 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 				SubPath:   "log4j.properties",
 				ReadOnly:  true,
 			},
-			{
-				MountPath: "/conf/zoo.cfg",
-				Name:      "zoo-cfg",
-				SubPath:   "zoo.cfg",
-				ReadOnly:  true,
-			},
-			{
-				MountPath: "/conf/zoo.cfg.dynamic",
-				Name:      "zoo-dynamic",
-				SubPath:   "zoo.cfg.dynamic",
-				ReadOnly:  true,
-			},
+			//{
+			//	MountPath: "/conf/zoo.cfg.dynamic",
+			//	Name:      "zoo-dynamic",
+			//	SubPath:   "zoo.cfg.dynamic",
+			//	ReadOnly:  true,
+			//},
 			{
 				MountPath: "/data",
 				Name:      "data",
+			},
+			{
+				MountPath: "/conf",
+				Name:      "conf",
 			},
 			{
 				MountPath: "/etc/localtime",
@@ -253,6 +259,12 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 			},
 			{
 				Name: "data",
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			},
+			{
+				Name: "conf",
 				VolumeSource: corev1.VolumeSource{
 					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},

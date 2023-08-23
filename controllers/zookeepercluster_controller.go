@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
+	"github.com/qilitang/zookeeper-operator/operator"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,7 @@ import (
 type ZookeeperClusterReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
+	RemoteRequest  *operator.RemoteRequest
 	Log            logr.Logger
 	OwnerReference metav1.OwnerReference
 }
