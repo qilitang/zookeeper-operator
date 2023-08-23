@@ -9,13 +9,13 @@ metadata:
     app.kubernetes.io/created-by: zookeeper-operator
     app.kubernetes.io/part-of: zookeeper-operator
     app.kubernetes.io/managed-by: kustomize
-  name: system
+  name: zookeeper
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: controller-manager
-  namespace: system
+  namespace: zookeeper
   labels:
     control-plane: controller-manager
     app.kubernetes.io/name: deployment
@@ -68,9 +68,7 @@ spec:
       containers:
       - command:
         - /manager
-        args:
-        - --leader-elect
-        image: controller:latest
+        image: registry.cn-hangzhou.aliyuncs.com/zyz_k8s/zookeeper-operator:latest
         name: manager
         securityContext:
           allowPrivilegeEscalation: false

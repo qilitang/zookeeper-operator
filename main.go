@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"github.com/qilitang/zookeeper-operator/operator"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"os"
@@ -34,8 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	zookeeperv1 "zookeeper-operator/api/v1"
-	"zookeeper-operator/controllers"
+	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
+	"github.com/qilitang/zookeeper-operator/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -96,11 +97,15 @@ func main() {
 		setupLog.Error(err, "unable to get gvk")
 		os.Exit(1)
 	}
-
+	remoteRequest, err := operator.NewRemoteRequest()
+	if err != nil {
+		setupLog.Error(err, "unable to get remoteRequest")
+	}
 	if err = (&controllers.ZookeeperClusterReconciler{
-		Log:    ctrl.Log.WithName("controllers").WithName("ZookeeperCluster"),
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Log:           ctrl.Log.WithName("controllers").WithName("ZookeeperCluster"),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		RemoteRequest: remoteRequest,
 		OwnerReference: metav1.OwnerReference{
 			APIVersion:         gvk.GroupVersion().String(),
 			Kind:               gvk.Kind,

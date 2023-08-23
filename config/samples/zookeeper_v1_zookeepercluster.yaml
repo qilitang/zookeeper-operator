@@ -7,6 +7,13 @@ metadata:
     app.kubernetes.io/part-of: zookeeper-operator
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: zookeeper-operator
-  name: zookeepercluster-sample
+  name: zk4
 spec:
-  # TODO(user): Add fields here
+  replicas: 3
+  version: "3.6"
+  image: "zookeeper:3.6"
+  config:
+    initLimit: 2000
+    tickTime: 200
+    syncLimit: 8000
+    quorumListenOnAllIPs: true
