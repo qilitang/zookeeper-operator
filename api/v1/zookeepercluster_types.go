@@ -34,8 +34,6 @@ type ZookeeperClusterSpec struct {
 	// the zookeeper cluster.
 	Labels map[string]string `json:"labels,omitempty"`
 
-	// Version is the zookeeper version
-	Version string `json:"version,omitempty"`
 	// Image is the  container image. default is zookeeper:3.5
 	Image string `json:"image"`
 	//
@@ -218,7 +216,7 @@ type ClusterStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=zzk
+// +kubebuilder:resource:shortName=zookeeper
 // ZookeeperCluster is the Schema for the zookeeperclusters API
 type ZookeeperCluster struct {
 	metav1.TypeMeta   `json:",inline"`

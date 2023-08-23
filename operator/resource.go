@@ -205,7 +205,6 @@ func NewDatabaseLabel(cluster *zookeeperv1.ZookeeperCluster) map[string]string {
 	labels := utils.CopyMap(cluster.Spec.Labels)
 	labels[utils.AppNameLabelKey] = cluster.Name
 	labels[utils.CreatedByLabelKey] = "qilitang"
-	labels[utils.DBVersionLabelKey] = fmt.Sprintf("%s", cluster.Spec.Version)
 	return labels
 }
 

@@ -13,7 +13,7 @@ spec:
     listKind: ZookeeperClusterList
     plural: zookeeperclusters
     shortNames:
-    - zzk
+    - zookeeper
     singular: zookeepercluster
   scope: Namespaced
   versions:
@@ -138,9 +138,6 @@ spec:
                 description: Replicas is the cluster node counts
                 format: int32
                 type: integer
-              version:
-                description: Version is the zookeeper version
-                type: string
               zookeeperResources:
                 description: ZookeeperResources describes the cluster database compute
                   resource requirements
