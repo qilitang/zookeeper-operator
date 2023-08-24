@@ -20,6 +20,7 @@ import (
 	"fmt"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
 	options "github.com/qilitang/zookeeper-operator/common/options"
+	"github.com/qilitang/zookeeper-operator/utils"
 	apsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/pointer"
@@ -37,7 +38,7 @@ func CreateZookeeperContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperIm
 	}
 	c := corev1.Container{
 		Env:       NewZookeeperContainerEnv(cluster, index),
-		Name:      "zookeeper",
+		Name:      utils.ZookeeperContainerName,
 		Image:     zookeeperImageName,
 		Resources: resource,
 		Ports: []corev1.ContainerPort{
@@ -110,9 +111,8 @@ func CreateInitContainer(cluster *zookeeperv1.ZookeeperCluster, initImageName st
 			"/bin/sh",
 			"-c",
 			fmt.Sprintf(
-				"echo $(MY_ID) > /data/myid && echo \"%s\" > /conf/zoo.cfg && echo \"%s\" > /conf/zoo.cfg.dynamic",
+				"echo $(MY_ID) > /data/myid && echo \"%s\" > /conf/zoo.cfg",
 				WithCustomConfig(cluster),
-				WithDynamicConfig1(cluster, index),
 			),
 		},
 	}
@@ -205,12 +205,12 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 				SubPath:   "log4j.properties",
 				ReadOnly:  true,
 			},
-			//{
-			//	MountPath: "/conf/zoo.cfg.dynamic",
-			//	Name:      "zoo-dynamic",
-			//	SubPath:   "zoo.cfg.dynamic",
-			//	ReadOnly:  true,
-			//},
+			{
+				MountPath: "/conf/zoo.cfg.dynamic",
+				Name:      "zoo-dynamic",
+				SubPath:   "zoo.cfg.dynamic",
+				ReadOnly:  true,
+			},
 			{
 				MountPath: "/data",
 				Name:      "data",

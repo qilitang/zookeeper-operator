@@ -7,11 +7,10 @@ metadata:
     app.kubernetes.io/part-of: zookeeper-operator
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: zookeeper-operator
-  name: zk4
+  name: zk2
 spec:
   replicas: 3
-  version: "3.6"
-  image: "zookeeper:3.6"
+  image: "registry.cn-hangzhou.aliyuncs.com/squids/zookeeper:3.5.10"
   config:
     initLimit: 2000
     tickTime: 200

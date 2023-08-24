@@ -5,7 +5,8 @@ const (
 	CreatedByLabelKey = "created-by"
 	DBVersionLabelKey = "zk-version"
 
-	SetName = "set-name"
+	ZookeeperContainerName = "zookeeper"
+	SetName                = "set-name"
 )
 
 const (

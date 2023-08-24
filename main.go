@@ -109,8 +109,8 @@ func main() {
 		OwnerReference: metav1.OwnerReference{
 			APIVersion:         gvk.GroupVersion().String(),
 			Kind:               gvk.Kind,
-			Controller:         pointer.BoolPtr(true),
-			BlockOwnerDeletion: pointer.BoolPtr(true),
+			Controller:         pointer.Bool(true),
+			BlockOwnerDeletion: pointer.Bool(true),
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ZookeeperCluster")
