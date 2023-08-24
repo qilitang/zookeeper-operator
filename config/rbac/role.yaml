@@ -2,15 +2,16 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
-  name: manager-role
+  name: zookeeper-operator
 rules:
-- resources:
+- apiGroups:
+  - ""
+  resources:
   - configmaps
   - endpoints
   - events
   - persistentvolumeclaims
-  - pod
+  - pods
   - pods/exec
   - secrets
   - services
@@ -21,6 +22,12 @@ rules:
   resources:
   - replicasets
   - statefulsets
+  verbs:
+  - '*'
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
   verbs:
   - '*'
 - apiGroups:

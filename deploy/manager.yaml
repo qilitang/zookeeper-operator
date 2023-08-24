@@ -84,5 +84,5 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
-      serviceAccountName: zookeeper-operator
+      serviceAccountName: zookeeper-operator-1
       terminationGracePeriodSeconds: 10

@@ -47,8 +47,9 @@ type ZookeeperClusterReconciler struct {
 //+kubebuilder:rbac:groups=zookeeper.qilitang.top,resources=zookeeperclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=zookeeper.qilitang.top,resources=zookeeperclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=zookeeper.qilitang.top,resources=zookeeperclusters/finalizers,verbs=update
-//+kubebuilder:rbac:groups=,resources=pod;pods/exec;services;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs="*"
+//+kubebuilder:rbac:groups="",resources=pods;pods/exec;services;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs="*"
 //+kubebuilder:rbac:groups=apps,resources=statefulsets;replicasets,verbs="*"
+//+kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs="*"
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -78,8 +79,8 @@ func (r *ZookeeperClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 	if err := r.syncReplicas(ctx, cluster); err != nil {
-		log.Info(fmt.Sprintf("cluster %s sync replica failed, after 30s retry", cluster.Name))
-		return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, err
+		log.Info(fmt.Sprintf("cluster %s sync replica failed: %v, after 30s retry", cluster.Name, err))
+		return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
 	}
 
 	if err := r.UpdateCluster(ctx, cluster); err != nil {

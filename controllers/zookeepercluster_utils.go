@@ -51,7 +51,6 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 		shareResource.CreateLog4JQuietConfigMap,
 		shareResource.CreateLog4JConfigMap,
 		shareResource.CreateCustomConfigMap,
-		shareResource.CreateDynamicConfigMap,
 	}...)
 	if err != nil {
 		return err
@@ -70,7 +69,8 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 		err = r.Get(ctx, types.NamespacedName{Name: setName, Namespace: cluster.Namespace}, set)
 		if errors.IsNotFound(err) {
 			err = options.SyncShareResources(r.Client, options.ReferenceToOwner(r.OwnerReference, cluster),
-				shareResource.CreateReplicaHeadlessService(setName))
+				shareResource.CreateReplicaHeadlessService(setName),
+				shareResource.CreateDynamicConfigMap(ctx, serverIndex))
 			if err != nil {
 				return err
 			}
@@ -121,13 +121,19 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			log.Info("rolling update statefulset, statefulset is not ready, no update next set. ", "Statefulse.Name", set.Name)
 			break
 		}
-		if err := r.reConfigCluster(ctx, cluster, set, serverIndex); err != nil {
+		if err := r.reConfigCluster(ctx, cluster, serverIndex); err != nil {
 			return err
 		}
 
 	}
 	// 释放资源
 	if err := r.deleteReplicasResources(ctx, cluster); err != nil {
+		return err
+	}
+	// 保证每个节点都在集群中
+	// 1. 可执行 echo stat | nc localhost 2181
+	// 2. 节点都含有 Mode 字段
+	if err := r.checkAllNodeRole(ctx, cluster); err != nil {
 		return err
 	}
 	return nil
@@ -170,9 +176,22 @@ func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context
 			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
 		return err
 	}
-	start, end := int(cluster.Spec.Replicas), len(setList.Items)+1
+	start, end := int(cluster.Spec.Replicas), len(setList.Items)
+	if start == end {
+		return nil
+	}
 	for i := start; end > 0 && i < end; i++ {
 		setName := options.GetClusterReplicaSetName(cluster.Name, i)
+		// 先执行清除  后执行 删除 sts 操作
+		removeCmd := []string{
+			"sh",
+			"-c",
+			fmt.Sprintf("zkCli.sh reconfig -remove %d", i),
+		}
+		_, err := r.Exec(ctx, "", cluster, removeCmd)
+		if err != nil {
+			return err
+		}
 		g.Go(func() error {
 			set := &v1.StatefulSet{}
 			err := r.Get(ctx, types.NamespacedName{Name: setName, Namespace: cluster.Namespace}, set)
@@ -197,18 +216,6 @@ func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context
 			}
 			return r.Delete(ctx, svc)
 		})
-		g.Go(func() error {
-			removeCmd := []string{
-				"sh",
-				"-c",
-				fmt.Sprintf("zkCli.sh reconfig -remove %d", i),
-			}
-			_, err := r.Exec(ctx, cluster, removeCmd)
-			if err != nil {
-				return err
-			}
-			return nil
-		})
 		if err := g.Wait(); err != nil {
 			log.Info("remove resources is failed: %v", err)
 			return err
@@ -218,28 +225,66 @@ func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context
 	return nil
 }
 
-func (r *ZookeeperClusterReconciler) Exec(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, cmd []string) (string, error) {
+func (r *ZookeeperClusterReconciler) Exec(ctx context.Context, podName string, cluster *zookeeperv1.ZookeeperCluster, cmd []string) (string, error) {
 	firstPodName := options.GetClusterReplicaSetName(cluster.Name, 0) + "-0"
-	stdout, stderr, err := r.RemoteRequest.Exec(ctx, cluster.Namespace, firstPodName, "zookeeper", cmd)
+	if podName == "" {
+		podName = firstPodName
+	}
+	stdout, stderr, err := r.RemoteRequest.Exec(ctx, cluster.Namespace, podName, utils.ZookeeperContainerName, cmd)
 	if err != nil {
 		return "", fmt.Errorf("exec cmd %v failed, %v", cmd, err)
 	}
 	if stderr != "" {
-		return "", fmt.Errorf("exec addCmd %v Failed: %s", cmd, stderr)
+		return "", fmt.Errorf("exec cmd %v Failed: %s", cmd, stderr)
 	}
 	return stdout, nil
 }
 
-func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, set *v1.StatefulSet, id int) error {
-	if id == 0 {
+func (r *ZookeeperClusterReconciler) FindLeaderPodName(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) (string, error) {
+	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
+	podList := &corev1.PodList{}
+	matchLabels := utils.CopyMap(operator.NewDatabaseLabel(cluster))
+	setOpts := []client.ListOption{
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels(matchLabels),
+	}
+	if err := r.List(ctx, podList, setOpts...); err != nil {
+		log.Error(err, "Failed to list statefulsets",
+			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
+		return "", err
+	}
+	cmd := []string{
+		"sh",
+		"-c",
+		"echo stat | nc localhost 2181",
+	}
+	for _, pod := range podList.Items {
+		stdout, err := r.Exec(ctx, pod.Name, cluster, cmd)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(stdout, "Mode: leader") {
+			return pod.Name, nil
+		}
+	}
+	return "", fmt.Errorf("can not find leader pod")
+}
+
+func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, serverIndex int) error {
+	if serverIndex == 0 {
 		return nil
+	}
+	// findLeader pod
+	leaderPodName, err := r.FindLeaderPodName(ctx, cluster)
+	if err != nil {
+		return err
 	}
 	cmd := []string{
 		"sh",
 		"-c",
 		"echo \"conf\" | nc localhost 2181 | grep \"server\\.\"",
 	}
-	stdout, err := r.Exec(ctx, cluster, cmd)
+	stdout, err := r.Exec(ctx, leaderPodName, cluster, cmd)
 	if err != nil {
 		return err
 	}
@@ -250,7 +295,7 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 		}
 	}
 	var allServersHosts []string
-	for _, line := range strings.Split(operator.WithDynamicConfig1(cluster, id), "\n") {
+	for _, line := range strings.Split(operator.WithDynamicConfig(cluster, serverIndex), "\n") {
 		if strings.Contains(line, "server.") {
 			allServersHosts = append(allServersHosts, line)
 		}
@@ -260,12 +305,47 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 			addCmd := []string{
 				"sh",
 				"-c",
-				fmt.Sprintf("zkCli.sh reconfig -add server.%d=zk1-replica%d-headless.default.svc.cluster.local:2888:3888:participant\\;2181", id, id),
+				fmt.Sprintf("zkCli.sh reconfig -add %s",
+					options.GetServerDomain(
+						options.GetClusterReplicaSetName(cluster.Name, serverIndex),
+						cluster.Namespace, serverIndex, true)),
 			}
-			_, err = r.Exec(ctx, cluster, addCmd)
+			_, err = r.Exec(ctx, leaderPodName, cluster, addCmd)
 			if err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func (r *ZookeeperClusterReconciler) checkAllNodeRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
+	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
+	podList := &corev1.PodList{}
+	matchLabels := utils.CopyMap(operator.NewDatabaseLabel(cluster))
+	setOpts := []client.ListOption{
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels(matchLabels),
+	}
+	if err := r.List(ctx, podList, setOpts...); err != nil {
+		log.Error(err, "Failed to list pods",
+			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
+		return err
+	}
+	cmd := []string{
+		"sh",
+		"-c",
+		"echo stat | nc localhost 2181",
+	}
+	for _, pod := range podList.Items {
+		stdout, err := r.Exec(ctx, pod.Name, cluster, cmd)
+		if err != nil {
+			return fmt.Errorf("exec cmd %v failed: %v", cmd, err)
+		}
+		if strings.Contains(stdout, "Mode: leader") || strings.Contains(stdout, "Mode: follower") {
+			continue
+		} else {
+			return fmt.Errorf("exec cmd %v stdout is %s in pod %s", cmd, stdout, pod.Name)
 		}
 	}
 	return nil

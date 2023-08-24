@@ -2,15 +2,19 @@ package operator
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
 	options "github.com/qilitang/zookeeper-operator/common/options"
 	"github.com/qilitang/zookeeper-operator/utils"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"strings"
 )
 
 type ClusterSubResources struct {
@@ -159,11 +163,30 @@ func (t ClusterSubResources) CreateCustomConfigMap() (interface{}, bool, error) 
 	return &configmap, true, nil
 }
 
-func (t ClusterSubResources) CreateDynamicConfigMap() (interface{}, bool, error) {
+func (t ClusterSubResources) CreateDynamicConfigMap(ctx context.Context, serverIndex int) options.ResourcesCreator {
+	return func() (res interface{}, canUpdate bool, err error) {
+		key := "zoo.cfg.dynamic"
+		info := WithDynamicConfig(t.Cluster, serverIndex)
+		cm := &corev1.ConfigMap{}
+		err = t.Get(ctx, types.NamespacedName{Name: options.GetClusterDynamicConfigName(t.Cluster.Name), Namespace: t.Cluster.Namespace}, cm)
+		if err != nil && errors.IsNotFound(err) {
+			return t.createDynamicConfig(key, info), true, nil
+		}
+		if err != nil {
+			return cm, false, fmt.Errorf("get dynamic configmap failed: %s", err)
+		}
+		if strings.Contains(cm.Data[key], info) {
+			return cm, false, nil
+		}
+		return t.createDynamicConfig(key, info), true, nil
+	}
+}
+
+func (t ClusterSubResources) createDynamicConfig(key, info string) *corev1.ConfigMap {
 	labels := NewDatabaseLabel(t.Cluster)
 	data := map[string]string{}
-	utils.IncludeNonEmpty(data, "zoo.cfg.dynamic", WithDynamicConfig(t.Cluster))
-	configmap := corev1.ConfigMap{
+	utils.IncludeNonEmpty(data, key, info)
+	configmap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      options.GetClusterDynamicConfigName(t.Cluster.Name),
 			Namespace: t.Cluster.Namespace,
@@ -171,7 +194,7 @@ func (t ClusterSubResources) CreateDynamicConfigMap() (interface{}, bool, error)
 		},
 		Data: data,
 	}
-	return &configmap, true, nil
+	return configmap
 }
 
 func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) options.ResourcesCreator {
@@ -191,7 +214,7 @@ func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) option
 		service.Spec.Type = corev1.ServiceTypeClusterIP
 		service.Spec.ClusterIP = corev1.ClusterIPNone
 
-		service.Name = setName + "-headless"
+		service.Name = options.GetSetServiceHeadlessName(setName)
 		labels := make(map[string]string, 0)
 		labels[utils.SetName] = setName
 		service.Spec.Selector = utils.CopyMap(labels)
@@ -294,27 +317,11 @@ func withDefaultConfig(zc zookeeperv1.ZookeeperConfig) zookeeperv1.ZookeeperConf
 	return zc
 }
 
-func WithDynamicConfig(cluster *zookeeperv1.ZookeeperCluster) string {
+func WithDynamicConfig(cluster *zookeeperv1.ZookeeperCluster, serverIndex int) string {
 	b := &bytes.Buffer{}
-	for i := 0; i < int(cluster.Spec.Replicas); i++ {
+	for i := 0; i < serverIndex+1; i++ {
 		setName := options.GetClusterReplicaSetName(cluster.Name, i)
-		if i == int(cluster.Spec.Replicas)-1 {
-			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:observer;2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
-		} else {
-			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:participant;2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
-		}
-	}
-	return b.String()
-}
-func WithDynamicConfig1(cluster *zookeeperv1.ZookeeperCluster, index int) string {
-	b := &bytes.Buffer{}
-	for i := 0; i < index+1; i++ {
-		setName := options.GetClusterReplicaSetName(cluster.Name, i)
-		if i == int(cluster.Spec.Replicas)-1 {
-			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:observer;0.0.0.0:2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
-		} else {
-			utils.Iline(b, 0, fmt.Sprintf("server.%d=%s:2888:3888:participant;0.0.0.0:2181", i, setName+"-headless."+cluster.Namespace+".svc.cluster.local"))
-		}
+		utils.Iline(b, 0, options.GetServerDomain(setName, cluster.Namespace, i, false))
 	}
 	return b.String()
 }
