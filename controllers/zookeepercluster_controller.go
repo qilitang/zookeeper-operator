@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	"github.com/qilitang/zookeeper-operator/operator"
+	"github.com/qilitang/zookeeper-operator/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +39,7 @@ import (
 type ZookeeperClusterReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
-	RemoteRequest  *operator.RemoteRequest
+	RemoteRequest  *utils.RemoteRequest
 	Log            logr.Logger
 	OwnerReference metav1.OwnerReference
 }
@@ -79,8 +79,8 @@ func (r *ZookeeperClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 	if err := r.syncReplicas(ctx, cluster); err != nil {
-		log.Info(fmt.Sprintf("cluster %s sync replica failed: %v, after 30s retry", cluster.Name, err))
-		return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
+		log.Info(fmt.Sprintf("cluster %s sync replica failed: %v, after 5s retry", cluster.Name, err))
+		return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 	}
 
 	if err := r.UpdateCluster(ctx, cluster); err != nil {
@@ -94,10 +94,8 @@ func (r *ZookeeperClusterReconciler) setUpdatePredicate() predicate.Predicate {
 		UpdateFunc: func(event event.UpdateEvent) bool {
 			curSet := event.ObjectNew.(*appsv1.StatefulSet)
 			oldSet := event.ObjectOld.(*appsv1.StatefulSet)
-
-			if reflect.DeepEqual(curSet.Spec, oldSet.Spec) &&
-				reflect.DeepEqual(curSet.Status, oldSet.Status) {
-				return false
+			if !reflect.DeepEqual(curSet.Spec, oldSet.Spec) {
+				return true
 			}
 
 			return true

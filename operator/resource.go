@@ -24,9 +24,9 @@ type ClusterSubResources struct {
 }
 
 func (t ClusterSubResources) createBaseService() (interface{}, bool, error) {
-	svcSelectors := NewDatabaseLabel(t.Cluster)
+	svcSelectors := NewClusterLabel(t.Cluster)
 
-	labels := NewDatabaseLabel(t.Cluster)
+	labels := NewClusterLabel(t.Cluster)
 	service := corev1.Service{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Service",
@@ -114,12 +114,12 @@ func (t ClusterSubResources) CreateHeadlessService() (interface{}, bool, error) 
 	}...)
 	// headless
 	service.Spec.Type = corev1.ServiceTypeClusterIP
-	service.Spec.ClusterIP = corev1.ClusterIPNone
+	//service.Spec.ClusterIP = corev1.ClusterIPNone
 	return service, true, nil
 }
 
 func (t ClusterSubResources) CreateLog4JQuietConfigMap() (interface{}, bool, error) {
-	labels := NewDatabaseLabel(t.Cluster)
+	labels := NewClusterLabel(t.Cluster)
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      options.GetClusterLog4JQuietConfigName(t.Cluster.Name),
@@ -134,7 +134,7 @@ func (t ClusterSubResources) CreateLog4JQuietConfigMap() (interface{}, bool, err
 }
 
 func (t ClusterSubResources) CreateLog4JConfigMap() (interface{}, bool, error) {
-	labels := NewDatabaseLabel(t.Cluster)
+	labels := NewClusterLabel(t.Cluster)
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      options.GetClusterLog4JConfigName(t.Cluster.Name),
@@ -149,12 +149,41 @@ func (t ClusterSubResources) CreateLog4JConfigMap() (interface{}, bool, error) {
 }
 
 func (t ClusterSubResources) CreateCustomConfigMap() (interface{}, bool, error) {
-	labels := NewDatabaseLabel(t.Cluster)
+	labels := NewClusterLabel(t.Cluster)
 	data := map[string]string{}
 	utils.IncludeNonEmpty(data, "zoo.cfg", WithCustomConfig(t.Cluster))
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      options.GetClusterCustomConfigName(t.Cluster.Name),
+			Namespace: t.Cluster.Namespace,
+			Labels:    labels,
+		},
+		Data: data,
+	}
+	return &configmap, true, nil
+}
+func (t ClusterSubResources) CreateScriptConfigMap() (interface{}, bool, error) {
+	labels := NewClusterLabel(t.Cluster)
+	data := map[string]string{}
+	utils.IncludeNonEmpty(data, "script.sh", `
+#!/bin/bash
+
+output=$(echo stat | nc localhost 2181 2>/dev/null)
+
+if [[ $output == *"Mode: leader"* ]]; then
+    echo "Zookeeper is in Mode: leader"
+    exit 0
+elif [[ $output == *"Mode: follower"* ]]; then
+    echo "Zookeeper is in Mode: follower"
+    exit 0
+else
+    echo "Zookeeper mode is unknown or not detected."
+    exit 1
+fi
+`)
+	configmap := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      options.CreateScriptConfigMapName(t.Cluster.Name),
 			Namespace: t.Cluster.Namespace,
 			Labels:    labels,
 		},
@@ -183,7 +212,7 @@ func (t ClusterSubResources) CreateDynamicConfigMap(ctx context.Context, serverI
 }
 
 func (t ClusterSubResources) createDynamicConfig(key, info string) *corev1.ConfigMap {
-	labels := NewDatabaseLabel(t.Cluster)
+	labels := NewClusterLabel(t.Cluster)
 	data := map[string]string{}
 	utils.IncludeNonEmpty(data, key, info)
 	configmap := &corev1.ConfigMap{
@@ -212,7 +241,7 @@ func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) option
 
 		// headless
 		service.Spec.Type = corev1.ServiceTypeClusterIP
-		service.Spec.ClusterIP = corev1.ClusterIPNone
+		//service.Spec.ClusterIP = corev1.ClusterIPNone
 
 		service.Name = options.GetSetServiceHeadlessName(setName)
 		labels := make(map[string]string, 0)
@@ -224,11 +253,16 @@ func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) option
 	}
 }
 
-func NewDatabaseLabel(cluster *zookeeperv1.ZookeeperCluster) map[string]string {
+func NewClusterLabel(cluster *zookeeperv1.ZookeeperCluster) map[string]string {
 	labels := utils.CopyMap(cluster.Spec.Labels)
 	labels[utils.AppNameLabelKey] = cluster.Name
 	labels[utils.CreatedByLabelKey] = "qilitang"
 	return labels
+}
+func NewClusterAnnotations(cluster *zookeeperv1.ZookeeperCluster) map[string]string {
+	annotations := utils.CopyMap(cluster.Annotations)
+	annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleNotReady
+	return annotations
 }
 
 func WithCustomConfig(cluster *zookeeperv1.ZookeeperCluster) string {

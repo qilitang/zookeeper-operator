@@ -18,7 +18,7 @@ package main
 
 import (
 	"flag"
-	"github.com/qilitang/zookeeper-operator/operator"
+	"github.com/qilitang/zookeeper-operator/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"os"
@@ -97,7 +97,7 @@ func main() {
 		setupLog.Error(err, "unable to get gvk")
 		os.Exit(1)
 	}
-	remoteRequest, err := operator.NewRemoteRequest()
+	remoteRequest, err := utils.NewRemoteRequest()
 	if err != nil {
 		setupLog.Error(err, "unable to get remoteRequest")
 	}

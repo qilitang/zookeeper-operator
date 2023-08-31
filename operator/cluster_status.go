@@ -21,21 +21,20 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
+	commonstatus "github.com/qilitang/zookeeper-operator/common/status"
 	"github.com/qilitang/zookeeper-operator/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	commonstatus "github.com/qilitang/zookeeper-operator/common/status"
 )
 
 type ZookeeperClusterResourcesStatus struct {
+	RemoteRequest *utils.RemoteRequest
 	client.Client
 	Log     logr.Logger
 	Cluster *zookeeperv1.ZookeeperCluster
 }
 
 func (t *ZookeeperClusterResourcesStatus) IsReady() bool {
-
 	if t.Cluster.Status.ReadyReplicas == t.Cluster.Spec.Replicas {
 		return true
 	}
@@ -49,14 +48,14 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 
 	status.Replicas = 0
 	status.ReadyReplicas = 0
-	status.CurrentReplicas = 0
-	status.UpdatedReplicas = 0
-	matchLabels := utils.CopyMap(NewDatabaseLabel(t.Cluster))
+	matchLabels := utils.CopyMap(NewClusterLabel(t.Cluster))
 	setList := &appsv1.StatefulSetList{}
+
 	setOpts := []client.ListOption{
 		client.InNamespace(t.Cluster.Namespace),
 		client.MatchingLabels(matchLabels),
 	}
+
 	if err := t.Client.List(context.TODO(), setList, setOpts...); err != nil {
 		t.Log.Error(err, "Failed to list statefulsets",
 			"ZookeeperCluster.Namespace", t.Cluster.GetNamespace(), "MysqlCluster.Name", t.Cluster.GetName())
@@ -66,13 +65,22 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 	for i := range setList.Items {
 		status.Replicas++
 		setStatus := commonstatus.StatefulSetResourcesStatus{
-			StatefulSet: &setList.Items[i],
-			Client:      t.Client,
-			Log:         t.Log.WithName("StatefulSetResourcesStatus"),
+			RemoteRequest: t.RemoteRequest,
+			StatefulSet:   &setList.Items[i],
+			Client:        t.Client,
+			Log:           t.Log.WithName("StatefulSetResourcesStatus"),
 		}
 
 		if setStatus.IsReady() {
-			status.ReadyReplicas++
+			if status.Members == nil {
+				status.Members = make(map[string]string, 0)
+			}
+			if setStatus.IsRoleReady() {
+				status.ReadyReplicas++
+				status.Members[setStatus.StatefulSet.Name] = "ready"
+			} else {
+				status.Members[setStatus.StatefulSet.Name] = "not-ready"
+			}
 		}
 	}
 
@@ -104,17 +112,15 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 }
 
 func (t *ZookeeperClusterResourcesStatus) IsWarning() (bool, *commonstatus.ProgressStep) {
-	score := 0 // 主库正常加60分，从库正常加1分，总分大于60表示warning
+	score := 0 // 节点 2n +1 是60分
+	sumReady := 0
 	if t.IsReady() {
 		return false, commonstatus.NewProgress(t.Cluster.Name, "cluster", "ready. ")
 	}
-
-	currentMaster := ""
-
 	setList := &appsv1.StatefulSetList{}
 	setOpts := []client.ListOption{
 		client.InNamespace(t.Cluster.Namespace),
-		client.MatchingLabels(NewDatabaseLabel(t.Cluster)),
+		client.MatchingLabels(NewClusterLabel(t.Cluster)),
 	}
 	if err := t.Client.List(context.TODO(), setList, setOpts...); err != nil {
 		t.Log.Error(err, "Failed to list statefulsets",
@@ -124,15 +130,19 @@ func (t *ZookeeperClusterResourcesStatus) IsWarning() (bool, *commonstatus.Progr
 	step := commonstatus.NewProgress(t.Cluster.Name, "cluster", "wait database to ready. ")
 	for _, set := range setList.Items {
 		setStatus := commonstatus.StatefulSetResourcesStatus{
-			StatefulSet: &set,
-			Client:      t.Client,
-			Log:         t.Log.WithName("StatefulSetResourcesStatus"),
+			RemoteRequest: t.RemoteRequest,
+			StatefulSet:   &set,
+			Client:        t.Client,
+			Log:           t.Log.WithName("StatefulSetResourcesStatus"),
 		}
-
-		if setStatus.IsReady() && set.Name == currentMaster {
-			score += 60
-		} else if setStatus.IsReady() {
-			score += 1
+		if setStatus.IsReady() {
+			if setStatus.IsRoleReady() {
+				score += 1
+				sumReady += 1
+				if sumReady > (len(setList.Items)/2 + 1) {
+					score += 60
+				}
+			}
 		}
 	}
 
@@ -158,7 +168,7 @@ func (t *ZookeeperClusterResourcesStatus) IsFailed() (bool, *commonstatus.Progre
 	setList := &appsv1.StatefulSetList{}
 	setOpts := []client.ListOption{
 		client.InNamespace(t.Cluster.Namespace),
-		client.MatchingLabels(NewDatabaseLabel(t.Cluster)),
+		client.MatchingLabels(NewClusterLabel(t.Cluster)),
 	}
 	if err := t.Client.List(context.TODO(), setList, setOpts...); err != nil {
 		t.Log.Error(err, "Failed to list statefulsets",
@@ -169,9 +179,10 @@ func (t *ZookeeperClusterResourcesStatus) IsFailed() (bool, *commonstatus.Progre
 	step := commonstatus.NewProgress(t.Cluster.Name, "cluster", "wait database to ready. ")
 	for _, set := range setList.Items {
 		setStatus := commonstatus.StatefulSetResourcesStatus{
-			StatefulSet: &set,
-			Client:      t.Client,
-			Log:         t.Log.WithName("StatefulSetResourcesStatus"),
+			RemoteRequest: t.RemoteRequest,
+			StatefulSet:   &set,
+			Client:        t.Client,
+			Log:           t.Log.WithName("StatefulSetResourcesStatus"),
 		}
 		isFailed, subStep := setStatus.IsFailed()
 		step.AddChild(subStep)

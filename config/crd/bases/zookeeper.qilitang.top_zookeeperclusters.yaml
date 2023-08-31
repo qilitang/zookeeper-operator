@@ -195,9 +195,12 @@ spec:
                       attributes
                     properties:
                       size:
+                        anyOf:
+                        - type: integer
+                        - type: string
                         description: Size describes database persistent volume storage
-                        format: int64
-                        type: integer
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
                       storageClass:
                         description: StorageClass describes database volume storageClass
                           definition If not specified, use default StorageClass
@@ -215,19 +218,10 @@ spec:
             properties:
               PermitRollback:
                 type: boolean
-              collisionCount:
-                description: collisionCount is the count of hash collisions for the
-                  StatefulSet. The StatefulSet controller uses this field as a collision
-                  avoidance mechanism when it needs to create the name for the newest
-                  ControllerRevision.
-                format: int32
-                type: integer
-              currentReplicas:
-                description: CurrentReplicas is the number of Pods created by the
-                  StatefulSet controller from the StatefulSet version indicated by
-                  currentRevision.
-                format: int32
-                type: integer
+              actions:
+                additionalProperties:
+                  type: string
+                type: object
               currentRevision:
                 description: currentRevision, if not empty, indicates the version
                   of the StatefulSet used to generate Pods in the sequence [0,currentReplicas).
@@ -236,12 +230,10 @@ spec:
                 type: string
               fsmStatus:
                 type: string
-              observedGeneration:
-                description: observedGeneration is the most recent generation observed
-                  for this StatefulSet. It corresponds to the StatefulSet's generation,
-                  which is updated on mutation by the API Server.
-                format: int64
-                type: integer
+              members:
+                additionalProperties:
+                  type: string
+                type: object
               readyReplicas:
                 description: readyReplicas is the number of Pods created by the StatefulSet
                   controller that have a Ready Condition.

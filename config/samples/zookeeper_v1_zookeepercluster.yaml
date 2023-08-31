@@ -16,3 +16,14 @@ spec:
     tickTime: 200
     syncLimit: 8000
     quorumListenOnAllIPs: true
+  zookeeperResources:
+    resources:
+      limits:
+        cpu: "2"
+        memory: 2Gi
+      requests:
+        cpu: "1"
+        memory: 1Gi
+    storage:
+      size: 3Gi
+      storageClass: "csi-localpv"
