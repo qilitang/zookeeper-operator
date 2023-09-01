@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"strings"
 	"time"
 )
@@ -98,13 +97,22 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			if err := r.Create(ctx, newSet); err != nil && !errors.IsAlreadyExists(err) {
 				return err
 			}
-			if err := r.pollStatefulSet(ctx, set); err != nil {
+			_, loader := r.StatefulSetQueue.LoadOrStore(newSet.Name, true)
+			if !loader {
+				go func() {
+					if err := r.pollStatefulSet(ctx, cluster, newSet, serverIndex); err != nil {
+						log.Error(err, "pollStatefulSet failed", "statefulSet.Name", newSet.Name)
+					}
+					r.StatefulSetQueue.Delete(set.Name)
+				}()
+			}
+			if err = r.Get(ctx, client.ObjectKey{Name: newSet.Name, Namespace: newSet.Namespace}, set); err != nil {
 				return err
 			}
-			if err := r.reConfigCluster(ctx, cluster, serverIndex); err != nil {
-				return err
+			if set.Annotations[utils.AnnotationsRoleKey] != "" && set.Annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleNotReady {
+				continue
 			}
-			continue
+			break
 		}
 		updateFlag, err := r.DoSyncSetUpdate(ctx, set, cluster)
 		if err != nil {
@@ -114,23 +122,28 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			log.Info("success update statefulset", "Statefulse.Name", set.Name)
 			break
 		}
-		if err := r.pollStatefulSet(ctx, set); err != nil {
+		_, loader := r.StatefulSetQueue.LoadOrStore(set.Name, true)
+		if !loader {
+			go func() {
+				if err := r.pollStatefulSet(ctx, cluster, set, serverIndex); err != nil {
+					log.Error(err, "pollStatefulSet failed", "statefulSet.Name", set.Name)
+				}
+				r.StatefulSetQueue.Delete(set.Name)
+			}()
+		}
+		newSet := &v1.StatefulSet{}
+		if err = r.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet); err != nil {
 			return err
 		}
-		if err := r.reConfigCluster(ctx, cluster, serverIndex); err != nil {
-			return err
+		if newSet.Annotations[utils.AnnotationsRoleKey] != "" && newSet.Annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleNotReady {
+			continue
 		}
+		break
 	}
 	// 释放资源
 	if err := r.deleteReplicasResources(ctx, cluster); err != nil {
 		return err
 	}
-	// 保证每个节点都在集群中
-	// 1. 可执行 echo stat | nc ocalhost 2181
-	// 2. 节点都含有 Mode 字段
-	//if err := r.checkAllNodeRole(ctx, cluster); err != nil {
-	//	return err
-	//}
 	return nil
 }
 
@@ -186,20 +199,6 @@ func (r *ZookeeperClusterReconciler) DoSyncSetUpdate(ctx context.Context, set *v
 			return
 		}
 	}
-	//else {
-	//	setStatus := status.StatefulSetResourcesStatus{
-	//		StatefulSet: set,
-	//		Client:      r.Client,
-	//		Log:         r.Log.WithName("StatefulSetResourcesStatus"),
-	//	}
-	//	if setStatus.IsReady() {
-	//		r.Log.Info(fmt.Sprintf("set %s is ready, update cluster ready replicas. ", set.Name))
-	//		if replicas > 0 {
-	//			cluster.Status.Replicas += 1
-	//			cluster.Status.ReadyReplicas += set.Status.ReadyReplicas
-	//		}
-	//	}
-	//}
 	return
 }
 
@@ -360,62 +359,62 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 	return nil
 }
 
-func (r *ZookeeperClusterReconciler) checkReplicaRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, set *v1.StatefulSet) error {
-	cmd := []string{
-		"sh",
-		"-c",
-		"echo stat | nc localhost 2181",
-	}
-	stdout, err := r.Exec(ctx, set.Name+"-0", cluster, cmd)
-	if err != nil {
-		return fmt.Errorf("exec cmd %v failed: %v", cmd, err)
-	}
-	newSet := set.DeepCopy()
-	annotations := newSet.Annotations
-	needUpdate := false
-	if strings.Contains(stdout, "Mode: leader") {
-		if annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleLeader {
-			annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleLeader
-			needUpdate = true
-		}
-	} else if strings.Contains(stdout, "Mode: follower") {
-		if annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleFollower {
-			annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleFollower
-			needUpdate = true
-		}
-	} else {
-		return fmt.Errorf("exec cmd %v in pod %s stdout is: [%s] ", cmd, set.Name+"-0", stdout)
-	}
-	if needUpdate {
-		newSet.Annotations = annotations
-		return r.Client.Update(ctx, newSet)
-	}
-	return nil
-}
+//func (r *ZookeeperClusterReconciler) checkReplicaRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, set *v1.StatefulSet) error {
+//	cmd := []string{
+//		"sh",
+//		"-c",
+//		"echo stat | nc localhost 2181",
+//	}
+//	stdout, err := r.Exec(ctx, set.Name+"-0", cluster, cmd)
+//	if err != nil {
+//		return fmt.Errorf("exec cmd %v failed: %v", cmd, err)
+//	}
+//	newSet := set.DeepCopy()
+//	annotations := newSet.Annotations
+//	needUpdate := false
+//	if strings.Contains(stdout, "Mode: leader") {
+//		if annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleLeader {
+//			annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleLeader
+//			needUpdate = true
+//		}
+//	} else if strings.Contains(stdout, "Mode: follower") {
+//		if annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleFollower {
+//			annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleFollower
+//			needUpdate = true
+//		}
+//	} else {
+//		return fmt.Errorf("exec cmd %v in pod %s stdout is: [%s] ", cmd, set.Name+"-0", stdout)
+//	}
+//	if needUpdate {
+//		newSet.Annotations = annotations
+//		return r.Client.Update(ctx, newSet)
+//	}
+//	return nil
+//}
 
-func (r *ZookeeperClusterReconciler) checkAllNodeRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
-	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
-	setList := &v1.StatefulSetList{}
-	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
-	setOpts := []client.ListOption{
-		client.InNamespace(cluster.Namespace),
-		client.MatchingLabels(matchLabels),
-	}
-	if err := r.List(ctx, setList, setOpts...); err != nil {
-		log.Error(err, "Failed to list pods",
-			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
-		return err
-	}
-	for _, set := range setList.Items {
-		if err := r.checkReplicaRole(ctx, cluster, &set); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+//func (r *ZookeeperClusterReconciler) checkAllNodeRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
+//	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
+//	setList := &v1.StatefulSetList{}
+//	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
+//	setOpts := []client.ListOption{
+//		client.InNamespace(cluster.Namespace),
+//		client.MatchingLabels(matchLabels),
+//	}
+//	if err := r.List(ctx, setList, setOpts...); err != nil {
+//		log.Error(err, "Failed to list pods",
+//			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
+//		return err
+//	}
+//	for _, set := range setList.Items {
+//		if err := r.checkReplicaRole(ctx, cluster, &set); err != nil {
+//			return err
+//		}
+//	}
+//	return nil
+//}
 
-func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, set *v1.StatefulSet) error {
-	log := log.Log.WithValues("zookeeper Cluster", "pollStatefulSet")
+func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, set *v1.StatefulSet, serverIndex int) error {
+	log := r.Log.WithValues("zookeeper Cluster", "pollStatefulSet")
 	if utils.IsContextDone(ctx) {
 		log.V(2).Info("ctx is done")
 		return nil
@@ -437,7 +436,14 @@ func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, set *v
 				Log:           log.WithName("StatefulSetResourcesStatus"),
 			}
 			if setStatus.IsReady() {
-				if setStatus.IsRoleReady() {
+				role, ready := setStatus.IsRoleReady()
+				if ready {
+					if err = r.changeRoleAnnotation(ctx, set, role); err != nil {
+						return err
+					}
+					if err = r.reConfigCluster(ctx, cluster, serverIndex); err != nil {
+						return err
+					}
 					return nil
 				}
 			}
@@ -454,6 +460,16 @@ func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, set *v
 		}
 		pollBack(ctx, opts)
 	}
+}
+
+func (r *ZookeeperClusterReconciler) changeRoleAnnotation(ctx context.Context, set *v1.StatefulSet, role string) error {
+
+	newSet := &v1.StatefulSet{}
+	if err := r.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet); err != nil {
+		return nil
+	}
+	newSet.Annotations[utils.AnnotationsRoleKey] = role
+	return r.Client.Update(ctx, newSet)
 }
 
 func pollBack(ctx context.Context, opts *StatefulSetPollOptions) {

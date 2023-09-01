@@ -64,7 +64,7 @@ func (t StatefulSetResourcesStatus) IsReady() bool {
 	return true
 }
 
-func (t StatefulSetResourcesStatus) IsRoleReady() bool {
+func (t StatefulSetResourcesStatus) IsRoleReady() (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), runExecTimeout*time.Second)
 	defer cancel()
 	cmd := []string{
@@ -73,20 +73,19 @@ func (t StatefulSetResourcesStatus) IsRoleReady() bool {
 		"echo stat | nc localhost 2181",
 	}
 	stdout, stderr, err := t.RemoteRequest.Exec(ctx, t.StatefulSet.Namespace, t.StatefulSet.Name+"-0", utils.ZookeeperContainerName, cmd)
-	log := t.Log.WithValues("IsRoleReady", "sts")
-
 	if err != nil {
-		log.Info(fmt.Sprintf("%v", err))
-		return false
+		return "", false
 	}
 	if stderr != "" {
-		log.Info(fmt.Sprintf("%v", err))
-		return false
+		return "", false
 	}
-	if strings.Contains(stdout, "Mode: leader") || strings.Contains(stdout, "Mode: follower") {
-		return true
+	if strings.Contains(stdout, "Mode: leader") {
+		return utils.AnnotationsRoleLeader, true
+
+	} else if strings.Contains(stdout, "Mode: follower") {
+		return utils.AnnotationsRoleFollower, true
 	}
-	return false
+	return "", false
 }
 
 func (t StatefulSetResourcesStatus) IsPvcReady() bool {

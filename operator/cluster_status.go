@@ -57,7 +57,7 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 	}
 
 	if err := t.Client.List(context.TODO(), setList, setOpts...); err != nil {
-		t.Log.Error(err, "Failed to list statefulsets",
+		t.Log.Error(err, "Failed to list statefulSets",
 			"ZookeeperCluster.Namespace", t.Cluster.GetNamespace(), "MysqlCluster.Name", t.Cluster.GetName())
 		return err
 	}
@@ -75,7 +75,8 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 			if status.Members == nil {
 				status.Members = make(map[string]string, 0)
 			}
-			if setStatus.IsRoleReady() {
+			_, ready := setStatus.IsRoleReady()
+			if ready {
 				status.ReadyReplicas++
 				status.Members[setStatus.StatefulSet.Name] = "ready"
 			} else {
@@ -136,7 +137,8 @@ func (t *ZookeeperClusterResourcesStatus) IsWarning() (bool, *commonstatus.Progr
 			Log:           t.Log.WithName("StatefulSetResourcesStatus"),
 		}
 		if setStatus.IsReady() {
-			if setStatus.IsRoleReady() {
+			_, ready := setStatus.IsRoleReady()
+			if ready {
 				score += 1
 				sumReady += 1
 				if sumReady > (len(setList.Items)/2 + 1) {

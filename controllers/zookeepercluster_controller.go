@@ -32,16 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sync"
 	"time"
 )
 
 // ZookeeperClusterReconciler reconciles a ZookeeperCluster object
 type ZookeeperClusterReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	RemoteRequest  *utils.RemoteRequest
-	Log            logr.Logger
-	OwnerReference metav1.OwnerReference
+	Scheme           *runtime.Scheme
+	RemoteRequest    *utils.RemoteRequest
+	Log              logr.Logger
+	OwnerReference   metav1.OwnerReference
+	StatefulSetQueue *sync.Map
 }
 
 //+kubebuilder:rbac:groups=zookeeper.qilitang.top,resources=zookeeperclusters,verbs=get;list;watch;create;update;patch;delete
@@ -94,10 +96,11 @@ func (r *ZookeeperClusterReconciler) setUpdatePredicate() predicate.Predicate {
 		UpdateFunc: func(event event.UpdateEvent) bool {
 			curSet := event.ObjectNew.(*appsv1.StatefulSet)
 			oldSet := event.ObjectOld.(*appsv1.StatefulSet)
-			if !reflect.DeepEqual(curSet.Spec, oldSet.Spec) {
-				return true
+			if reflect.DeepEqual(curSet.Spec, oldSet.Spec) &&
+				reflect.DeepEqual(curSet.Annotations, oldSet.Annotations) &&
+				reflect.DeepEqual(curSet.Status, oldSet.Status) {
+				return false
 			}
-
 			return true
 		},
 	}
