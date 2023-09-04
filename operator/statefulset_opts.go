@@ -74,7 +74,8 @@ func CreateZookeeperContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperIm
 					Command: []string{"/bin/bash", "-c", "echo ruok | timeout 2 nc -w 2 localhost 2181 | grep imok"},
 				},
 			},
-			PeriodSeconds: 5,
+			PeriodSeconds:       5,
+			InitialDelaySeconds: 2,
 		},
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -258,12 +259,6 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 				},
 			},
 			{
-				Name: "data",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-			{
 				Name: "conf",
 				VolumeSource: corev1.VolumeSource{
 					EmptyDir: &corev1.EmptyDirVolumeSource{},
@@ -311,6 +306,7 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 
 func NewZookeeperContainerEnv(cluster *zookeeperv1.ZookeeperCluster, index int) []corev1.EnvVar {
 	env := make([]corev1.EnvVar, 0)
+	resource := cluster.Spec.ZookeeperResources.Resources.DeepCopy()
 	env = append(env, []corev1.EnvVar{
 		{
 			Name:  "DOMAIN",
@@ -351,6 +347,14 @@ func NewZookeeperContainerEnv(cluster *zookeeperv1.ZookeeperCluster, index int) 
 		{
 			Name:  "MY_ID",
 			Value: fmt.Sprintf("%d", index),
+		},
+		{
+			Name:  utils.ZookeeperJVMFLAGSEnvName,
+			Value: fmt.Sprintf("-Xms%dm", utils.ChangeBToMBWithJVMRatio(resource.Limits.Memory().Value())),
+		},
+		{
+			Name:  utils.ZookeeperHeapEnvName,
+			Value: fmt.Sprintf("%d", utils.ChangeBToMBWithJVMRatio(resource.Limits.Memory().Value())),
 		},
 	}...)
 

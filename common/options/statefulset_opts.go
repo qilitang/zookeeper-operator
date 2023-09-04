@@ -19,6 +19,7 @@ package options
 import (
 	"context"
 	"fmt"
+	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
 	"github.com/qilitang/zookeeper-operator/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -80,12 +81,11 @@ func WithParallel() StatefulSetResourcesOpts {
 /*
 创建statefulSet所需要的基本spec配置信息
 */
-func WithStatefulSetCommon(name, nameSpace string, replica int32, labels map[string]string) StatefulSetResourcesOpts {
+func WithStatefulSetCommon(name, nameSpace string, replica int32, labels, annotations map[string]string) StatefulSetResourcesOpts {
 	return func(set *appsv1.StatefulSet) error {
 
 		setLabels := utils.CopyMap(labels)
 		setLabels[utils.SetName] = name
-
 		// pod 上区分出主备从
 		podLabels := utils.CopyMap(setLabels)
 
@@ -95,9 +95,10 @@ func WithStatefulSetCommon(name, nameSpace string, replica int32, labels map[str
 				APIVersion: "apps/v1",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Namespace: nameSpace,
-				Name:      name,
-				Labels:    setLabels,
+				Namespace:   nameSpace,
+				Name:        name,
+				Labels:      setLabels,
+				Annotations: annotations,
 			},
 			Spec: appsv1.StatefulSetSpec{
 				Replicas: &replica,
@@ -106,11 +107,9 @@ func WithStatefulSetCommon(name, nameSpace string, replica int32, labels map[str
 				},
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:   name,
-						Labels: podLabels,
-						Annotations: map[string]string{
-							"pod.beta.kubernetes.io/initialized": "true",
-						},
+						Name:        name,
+						Labels:      podLabels,
+						Annotations: annotations,
 					},
 					Spec: corev1.PodSpec{
 						SecurityContext: &corev1.PodSecurityContext{
@@ -133,6 +132,38 @@ func WithStatefulSetCommon(name, nameSpace string, replica int32, labels map[str
 func WithStatefulSetPodPriority(priority int32) StatefulSetResourcesOpts {
 	return func(set *appsv1.StatefulSet) error {
 		set.Spec.Template.Spec.Priority = &priority
+		return nil
+	}
+}
+
+func WithStatefulSetPvc(cluster *zookeeperv1.ZookeeperCluster) StatefulSetResourcesOpts {
+	return func(set *appsv1.StatefulSet) error {
+		if *cluster.Spec.ZookeeperResources.Storage.StorageClass == "" {
+
+		}
+		pvc := corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "data",
+				Namespace: set.Namespace,
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: cluster.Spec.ZookeeperResources.Storage.Size,
+					},
+				},
+				StorageClassName: cluster.Spec.ZookeeperResources.Storage.StorageClass,
+			},
+		}
+		set.Spec.VolumeClaimTemplates = append(set.Spec.VolumeClaimTemplates, pvc)
+		return nil
+	}
+}
+
+func WithResourceSet(cluster *zookeeperv1.ZookeeperCluster) StatefulSetResourcesOpts {
+	return func(set *appsv1.StatefulSet) error {
+
 		return nil
 	}
 }
@@ -190,10 +221,6 @@ func WithOwnerReference(reference metav1.OwnerReference) StatefulSetResourcesOpt
 
 		return nil
 	}
-}
-
-func WithZookeeperContainer() {
-
 }
 
 // 开源是否适用？ TODO

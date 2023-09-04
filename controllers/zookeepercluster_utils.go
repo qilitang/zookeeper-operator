@@ -15,12 +15,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
+	"time"
 )
 
 func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
 	log := r.Log.WithValues("zookeeper cluster ", "syncReplica")
 	setList := &v1.StatefulSetList{}
-	matchLabels := utils.CopyMap(operator.NewDatabaseLabel(cluster))
+	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
 	setOpts := []client.ListOption{
 		client.InNamespace(cluster.Namespace),
 		client.MatchingLabels(matchLabels),
@@ -41,9 +42,8 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 		setReplica = 0
 		nums = len(setList.Items)
 	}
-	start, end := 0, nums-1
 	// 创建基础资源
-	// sync mysqlcluster sub resource
+	// sync zookeeperCluster sub resource
 	shareResource := operator.ClusterSubResources{Cluster: cluster, Client: r.Client, Log: r.Log}
 
 	err := options.SyncShareResources(r.Client, options.ReferenceToOwner(r.OwnerReference, cluster), []options.ResourcesCreator{
@@ -51,14 +51,14 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 		shareResource.CreateLog4JQuietConfigMap,
 		shareResource.CreateLog4JConfigMap,
 		shareResource.CreateCustomConfigMap,
+		shareResource.CreateScriptConfigMap,
 	}...)
 	if err != nil {
 		return err
 	}
 	// 按照顺序去创建 sts 资源
-	for i := start; nums > 0 && i <= end; i++ {
+	for serverIndex := 0; serverIndex < nums; serverIndex++ {
 		opts := make([]options.StatefulSetResourcesOpts, 0)
-		serverIndex := i % nums
 		setName := options.GetClusterReplicaSetName(cluster.Name, serverIndex)
 		// 防止set重复检查
 		if setFlag[setName] {
@@ -78,11 +78,12 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			log.Info("statefulset not found, begin create",
 				"StatefulSet.Name", setName, "StatefulSet.Namespace", cluster.Namespace)
 			opts = append(opts,
-				options.WithStatefulSetCommon(setName, cluster.Namespace, setReplica, operator.NewDatabaseLabel(cluster)),
+				options.WithStatefulSetCommon(setName, cluster.Namespace, setReplica, operator.NewClusterLabel(cluster), operator.NewClusterAnnotations(cluster)),
 				operator.WithInitContainer(cluster, cluster.Spec.Image, serverIndex),
 				operator.WithZookeeperContainer(cluster, cluster.Spec.Image, serverIndex),
 				options.WithShareProcess(),
 				options.WithPVCSelector(r.Client),
+				options.WithStatefulSetPvc(cluster),
 				//options.WithCustomerAnnotation(cluster.Annotations),
 				//options.WithCustomerNodeLabelAnnotation(cluster.Annotations),
 				options.WithOwnerReference(options.ReferenceToOwner(r.OwnerReference, cluster)),
@@ -96,44 +97,49 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			if err := r.Create(ctx, newSet); err != nil && !errors.IsAlreadyExists(err) {
 				return err
 			}
-			// check pod resource
-			set = &v1.StatefulSet{}
-			if err := r.Get(ctx, types.NamespacedName{Name: setName, Namespace: cluster.GetNamespace()}, set); err != nil {
+			_, loader := r.StatefulSetQueue.LoadOrStore(newSet.Name, true)
+			if !loader {
+				go func() {
+					if err := r.pollStatefulSet(ctx, cluster, newSet.Name, serverIndex); err != nil {
+						log.Error(err, "pollStatefulSet failed", "statefulSet.Name", newSet.Name)
+					}
+				}()
+			}
+			if err = r.Get(ctx, client.ObjectKey{Name: newSet.Name, Namespace: newSet.Namespace}, set); err != nil {
 				return err
 			}
-			setStatus := status.StatefulSetResourcesStatus{
-				StatefulSet: set,
-				Client:      r.Client,
-				Log:         log.WithName("StatefulSetResourcesStatus"),
+			if set.Annotations[utils.AnnotationsRoleKey] != "" && set.Annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleNotReady {
+				continue
 			}
-			if !setStatus.IsReady() {
-				log.Info("rolling update statefulset, statefulset is not ready, no update next set. ", "Statefulse.Name", set.Name)
-				break
-			}
-			continue // concurrence create
-		}
-		setStatus := status.StatefulSetResourcesStatus{
-			StatefulSet: set,
-			Client:      r.Client,
-			Log:         log.WithName("StatefulSetResourcesStatus"),
-		}
-		if !setStatus.IsReady() {
-			log.Info("rolling update statefulset, statefulset is not ready, no update next set. ", "Statefulse.Name", set.Name)
 			break
 		}
-		if err := r.reConfigCluster(ctx, cluster, serverIndex); err != nil {
+		updateFlag, err := r.DoSyncSetUpdate(ctx, set, cluster)
+		if err != nil {
 			return err
 		}
-
+		if updateFlag {
+			log.Info("success update statefulset", "Statefulse.Name", set.Name)
+			break
+		}
+		_, loader := r.StatefulSetQueue.LoadOrStore(set.Name, true)
+		if !loader {
+			go func() {
+				if err := r.pollStatefulSet(ctx, cluster, set.Name, serverIndex); err != nil {
+					log.Error(err, "pollStatefulSet failed", "statefulSet.Name", set.Name)
+				}
+			}()
+		}
+		newSet := &v1.StatefulSet{}
+		if err = r.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet); err != nil {
+			return err
+		}
+		if newSet.Annotations[utils.AnnotationsRoleKey] != "" && newSet.Annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleNotReady {
+			continue
+		}
+		break
 	}
 	// 释放资源
 	if err := r.deleteReplicasResources(ctx, cluster); err != nil {
-		return err
-	}
-	// 保证每个节点都在集群中
-	// 1. 可执行 echo stat | nc localhost 2181
-	// 2. 节点都含有 Mode 字段
-	if err := r.checkAllNodeRole(ctx, cluster); err != nil {
 		return err
 	}
 	return nil
@@ -147,9 +153,10 @@ func (r *ZookeeperClusterReconciler) UpdateCluster(ctx context.Context, cluster 
 	}, newCluster)
 	newCluster = newCluster.DeepCopy()
 	zookeeperStatus := operator.ZookeeperClusterResourcesStatus{
-		Client:  r.Client,
-		Log:     r.Log.WithName("ZookeeperResourcesStatus"),
-		Cluster: newCluster,
+		RemoteRequest: r.RemoteRequest,
+		Client:        r.Client,
+		Log:           r.Log.WithName("ZookeeperResourcesStatus"),
+		Cluster:       newCluster,
 	}
 
 	err := zookeeperStatus.UpdateStatus()
@@ -162,11 +169,42 @@ func (r *ZookeeperClusterReconciler) UpdateCluster(ctx context.Context, cluster 
 	return nil
 }
 
+func (r *ZookeeperClusterReconciler) DoSyncSetUpdate(ctx context.Context, set *v1.StatefulSet, cluster *zookeeperv1.ZookeeperCluster) (updateFlag bool, err error) {
+	updateFlag = false
+	newSet := set.DeepCopy()
+	//replicas := cluster.Spec.Replicas
+	checker := &operator.ZookeeperChecker{
+		Client: r.Client,
+		Log:    r.Log.WithName("ZookeeperChecker"),
+	}
+
+	err = operator.DoZookeeperUpdate(cluster, newSet, &updateFlag,
+		checker.CheckVolumeSizeChangedApplyToPVC(),
+		checker.CheckResourceLimitChanged())
+	//checker.CheckReplicasChanged(replices),
+	//checker.CheckRollingRestart())
+	if err != nil {
+		return
+	}
+	if updateFlag {
+		newSet.Status.ReadyReplicas = 0
+		newSet.Status.Replicas = 0
+		annotations := utils.CopyMap(newSet.Annotations)
+		annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleNotReady
+		newSet.Annotations = annotations
+		newSet.Spec.Template.Annotations = annotations
+		if err = r.Client.Update(ctx, newSet); err != nil {
+			return
+		}
+	}
+	return
+}
+
 func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
 	log := r.Log.WithValues("zookeeper cluster", "delete replica")
 	g, _ := errgroup.WithContext(ctx)
 	setList := &v1.StatefulSetList{}
-	matchLabels := utils.CopyMap(operator.NewDatabaseLabel(cluster))
+	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
 	setOpts := []client.ListOption{
 		client.InNamespace(cluster.Namespace),
 		client.MatchingLabels(matchLabels),
@@ -243,7 +281,7 @@ func (r *ZookeeperClusterReconciler) Exec(ctx context.Context, podName string, c
 func (r *ZookeeperClusterReconciler) FindLeaderPodName(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) (string, error) {
 	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
 	podList := &corev1.PodList{}
-	matchLabels := utils.CopyMap(operator.NewDatabaseLabel(cluster))
+	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
 	setOpts := []client.ListOption{
 		client.InNamespace(cluster.Namespace),
 		client.MatchingLabels(matchLabels),
@@ -284,20 +322,22 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 		"-c",
 		"echo \"conf\" | nc localhost 2181 | grep \"server\\.\"",
 	}
-	stdout, err := r.Exec(ctx, leaderPodName, cluster, cmd)
+	timeOutCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	stdout, err := r.Exec(timeOutCtx, leaderPodName, cluster, cmd)
 	if err != nil {
 		return err
 	}
 	oldAllServersHosts := make(map[string]bool, 0)
 	for _, server := range strings.Split(stdout, "\n") {
 		if strings.Contains(server, "server.") {
-			oldAllServersHosts[server] = true
+			oldAllServersHosts[strings.Split(server, ";")[0]] = true
 		}
 	}
 	var allServersHosts []string
 	for _, line := range strings.Split(operator.WithDynamicConfig(cluster, serverIndex), "\n") {
 		if strings.Contains(line, "server.") {
-			allServersHosts = append(allServersHosts, line)
+			allServersHosts = append(allServersHosts, strings.Split(line, ";")[0])
 		}
 	}
 	for _, server := range allServersHosts {
@@ -310,7 +350,7 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 						options.GetClusterReplicaSetName(cluster.Name, serverIndex),
 						cluster.Namespace, serverIndex, true)),
 			}
-			_, err = r.Exec(ctx, leaderPodName, cluster, addCmd)
+			_, err = r.Exec(timeOutCtx, leaderPodName, cluster, addCmd)
 			if err != nil {
 				return err
 			}
@@ -319,34 +359,159 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 	return nil
 }
 
-func (r *ZookeeperClusterReconciler) checkAllNodeRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
-	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
-	podList := &corev1.PodList{}
-	matchLabels := utils.CopyMap(operator.NewDatabaseLabel(cluster))
-	setOpts := []client.ListOption{
-		client.InNamespace(cluster.Namespace),
-		client.MatchingLabels(matchLabels),
+//func (r *ZookeeperClusterReconciler) checkReplicaRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, set *v1.StatefulSet) error {
+//	cmd := []string{
+//		"sh",
+//		"-c",
+//		"echo stat | nc localhost 2181",
+//	}
+//	stdout, err := r.Exec(ctx, set.Name+"-0", cluster, cmd)
+//	if err != nil {
+//		return fmt.Errorf("exec cmd %v failed: %v", cmd, err)
+//	}
+//	newSet := set.DeepCopy()
+//	annotations := newSet.Annotations
+//	needUpdate := false
+//	if strings.Contains(stdout, "Mode: leader") {
+//		if annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleLeader {
+//			annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleLeader
+//			needUpdate = true
+//		}
+//	} else if strings.Contains(stdout, "Mode: follower") {
+//		if annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleFollower {
+//			annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleFollower
+//			needUpdate = true
+//		}
+//	} else {
+//		return fmt.Errorf("exec cmd %v in pod %s stdout is: [%s] ", cmd, set.Name+"-0", stdout)
+//	}
+//	if needUpdate {
+//		newSet.Annotations = annotations
+//		return r.Client.Update(ctx, newSet)
+//	}
+//	return nil
+//}
+
+//func (r *ZookeeperClusterReconciler) checkAllNodeRole(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
+//	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
+//	setList := &v1.StatefulSetList{}
+//	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
+//	setOpts := []client.ListOption{
+//		client.InNamespace(cluster.Namespace),
+//		client.MatchingLabels(matchLabels),
+//	}
+//	if err := r.List(ctx, setList, setOpts...); err != nil {
+//		log.Error(err, "Failed to list pods",
+//			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
+//		return err
+//	}
+//	for _, set := range setList.Items {
+//		if err := r.checkReplicaRole(ctx, cluster, &set); err != nil {
+//			return err
+//		}
+//	}
+//	return nil
+//}
+
+func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, setName string, serverIndex int) error {
+	log := r.Log.WithValues("zookeeper Cluster", "pollStatefulSet")
+	if utils.IsContextDone(ctx) {
+		log.V(2).Info("ctx is done")
+		return nil
 	}
-	if err := r.List(ctx, podList, setOpts...); err != nil {
-		log.Error(err, "Failed to list pods",
-			"zookeeperCluster.Namespace", cluster.GetNamespace(), "zookeeperCluster.Name", cluster.GetName())
-		return err
-	}
-	cmd := []string{
-		"sh",
-		"-c",
-		"echo stat | nc localhost 2181",
-	}
-	for _, pod := range podList.Items {
-		stdout, err := r.Exec(ctx, pod.Name, cluster, cmd)
-		if err != nil {
-			return fmt.Errorf("exec cmd %v failed: %v", cmd, err)
+	opts := NewStatefulSetPollOptions()
+	start := time.Now()
+	for {
+		if utils.IsContextDone(ctx) {
+			log.V(2).Info("ctx is done")
+			return nil
 		}
-		if strings.Contains(stdout, "Mode: leader") || strings.Contains(stdout, "Mode: follower") {
-			continue
+		newSet := &v1.StatefulSet{}
+		err := r.Client.Get(ctx, client.ObjectKey{Name: setName, Namespace: cluster.Namespace}, newSet)
+		if err == nil {
+			setStatus := status.StatefulSetResourcesStatus{
+				RemoteRequest: r.RemoteRequest,
+				StatefulSet:   newSet,
+				Client:        r.Client,
+				Log:           log.WithName("StatefulSetResourcesStatus"),
+			}
+			if setStatus.IsReady() {
+				log.Info("rolling update statefulSet, is ready, wait role ready", "StatefulSet.Name", setName)
+				role, ready := setStatus.IsRoleReady()
+				if ready {
+					log.Info("rolling update statefulSet, is role ready, reConfig cluster", "StatefulSet.Name", setName)
+					if err = r.reConfigCluster(ctx, cluster, serverIndex); err != nil {
+						log.Info("Failed to reconfig cluster, wait try next", "StatefulSet.Name", setName)
+						continue
+					}
+					r.StatefulSetQueue.Delete(newSet.Name)
+					if err := r.changeRoleAnnotation(ctx, newSet, role); err == nil {
+						return nil
+					}
+					log.Info("changeRoleAnnotation failed, wait try next", "statefulSet.Name", newSet.Name)
+				}
+			}
+			log.Info("rolling update statefulSet, is not ready, no update next set. ", "StatefulSet.Name", setName)
 		} else {
-			return fmt.Errorf("exec cmd %v stdout is %s in pod %s", cmd, stdout, pod.Name)
+			log.Info(fmt.Sprintf("statefulSet %s is not create yet ?", setName))
+		}
+		// StatefulSet is either not created or generation is not yet reached
+		if time.Since(start) >= opts.Timeout {
+			// Timeout reached, no good result available, time to quit
+			log.V(1).Info("%s/%s - TIMEOUT reached")
+			return fmt.Errorf("waitStatefulSet(%s/%s) - wait timeout", cluster.Namespace, setName)
+		}
+		pollBack(ctx, opts)
+	}
+}
+
+func (r *ZookeeperClusterReconciler) changeRoleAnnotation(ctx context.Context, set *v1.StatefulSet, role string) error {
+
+	newSet := &v1.StatefulSet{}
+	if err := r.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet); err != nil {
+		return nil
+	}
+	newSet.Annotations[utils.AnnotationsRoleKey] = role
+	return r.Client.Update(ctx, newSet)
+}
+
+func pollBack(ctx context.Context, opts *StatefulSetPollOptions) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	mainIntervalTimeout := time.After(opts.MainInterval)
+	run := true
+	for run {
+		backgroundIntervalTimeout := time.After(opts.BackgroundInterval)
+		select {
+		case <-ctx.Done():
+			// Context is done, nothing to do here more
+			run = false
+		case <-mainIntervalTimeout:
+			// Timeout reached, nothing to do here more
+			run = false
+		case <-backgroundIntervalTimeout:
+			// Function interval reached, time to call the func
 		}
 	}
-	return nil
+}
+
+// StatefulSetPollOptions specifies polling options
+type StatefulSetPollOptions struct {
+	StartBotheringAfterTimeout time.Duration
+	CreateTimeout              time.Duration
+	Timeout                    time.Duration
+	MainInterval               time.Duration
+	BackgroundInterval         time.Duration
+}
+
+// NewStatefulSetPollOptions creates new poll options
+func NewStatefulSetPollOptions() *StatefulSetPollOptions {
+	return &StatefulSetPollOptions{
+		StartBotheringAfterTimeout: time.Duration(60) * time.Second,
+		CreateTimeout:              time.Duration(30) * time.Second,
+		Timeout:                    time.Duration(300000) * time.Second,
+		MainInterval:               time.Duration(5) * time.Second,
+		BackgroundInterval:         2 * time.Second,
+	}
 }

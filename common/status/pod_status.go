@@ -22,7 +22,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"k8s.io/apimachinery/pkg/fields"
+	"github.com/qilitang/zookeeper-operator/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sort"
 	"time"
 
@@ -83,14 +84,19 @@ func (t PodResourcesStatus) IsFailed() (bool, *ProgressStep) {
 	if t.IsReady() {
 		return false, NewProgress(t.Pod.Name, t.Pod.Kind, "ready. ")
 	}
-	eventList := &v1.EventList{}
-	eventOpts := []client.ListOption{
-		client.MatchingFields(fields.Set{
-			"involvedObject.name":      t.Pod.Name,
-			"involvedObject.namespace": t.Pod.Namespace,
-		}),
+	//eventList := &v1.EventList{}
+	//eventOpts := []client.ListOption{
+	//	client.MatchingFields(fields.Set{
+	//		"involvedObject.name":      t.Pod.Name,
+	//		"involvedObject.namespace": t.Pod.Namespace,
+	//	}),
+	//}
+	listOptions := metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", t.Pod.Name, t.Pod.Namespace),
 	}
-	err := t.List(context.TODO(), eventList, eventOpts...)
+	newClient, _ := utils.NewRemoteRequest()
+	eventList, err := newClient.ClientSet.CoreV1().Events(t.Pod.Namespace).List(context.Background(), listOptions)
+	//err := t.List(context.TODO(), eventList, eventOpts...)
 	if err != nil || len(eventList.Items) == 0 {
 		t.Log.Info(fmt.Sprintf("get events empty [%v] [%d] [%s/%s]. ", err, len(eventList.Items), t.Pod.Name, t.Pod.Namespace))
 	} else {

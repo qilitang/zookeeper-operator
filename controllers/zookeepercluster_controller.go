@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	"github.com/qilitang/zookeeper-operator/operator"
+	"github.com/qilitang/zookeeper-operator/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,16 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sync"
 	"time"
 )
 
 // ZookeeperClusterReconciler reconciles a ZookeeperCluster object
 type ZookeeperClusterReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	RemoteRequest  *operator.RemoteRequest
-	Log            logr.Logger
-	OwnerReference metav1.OwnerReference
+	Scheme           *runtime.Scheme
+	RemoteRequest    *utils.RemoteRequest
+	Log              logr.Logger
+	OwnerReference   metav1.OwnerReference
+	StatefulSetQueue *sync.Map
 }
 
 //+kubebuilder:rbac:groups=zookeeper.qilitang.top,resources=zookeeperclusters,verbs=get;list;watch;create;update;patch;delete
@@ -79,8 +81,8 @@ func (r *ZookeeperClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, nil
 	}
 	if err := r.syncReplicas(ctx, cluster); err != nil {
-		log.Info(fmt.Sprintf("cluster %s sync replica failed: %v, after 30s retry", cluster.Name, err))
-		return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
+		log.Info(fmt.Sprintf("cluster %s sync replica failed: %v, after 5s retry", cluster.Name, err))
+		return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 	}
 
 	if err := r.UpdateCluster(ctx, cluster); err != nil {
@@ -94,12 +96,11 @@ func (r *ZookeeperClusterReconciler) setUpdatePredicate() predicate.Predicate {
 		UpdateFunc: func(event event.UpdateEvent) bool {
 			curSet := event.ObjectNew.(*appsv1.StatefulSet)
 			oldSet := event.ObjectOld.(*appsv1.StatefulSet)
-
 			if reflect.DeepEqual(curSet.Spec, oldSet.Spec) &&
+				reflect.DeepEqual(curSet.Annotations, oldSet.Annotations) &&
 				reflect.DeepEqual(curSet.Status, oldSet.Status) {
 				return false
 			}
-
 			return true
 		},
 	}

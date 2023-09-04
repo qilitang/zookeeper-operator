@@ -18,11 +18,12 @@ package main
 
 import (
 	"flag"
-	"github.com/qilitang/zookeeper-operator/operator"
+	"github.com/qilitang/zookeeper-operator/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sync"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -97,15 +98,16 @@ func main() {
 		setupLog.Error(err, "unable to get gvk")
 		os.Exit(1)
 	}
-	remoteRequest, err := operator.NewRemoteRequest()
+	remoteRequest, err := utils.NewRemoteRequest()
 	if err != nil {
 		setupLog.Error(err, "unable to get remoteRequest")
 	}
 	if err = (&controllers.ZookeeperClusterReconciler{
-		Log:           ctrl.Log.WithName("controllers").WithName("ZookeeperCluster"),
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		RemoteRequest: remoteRequest,
+		Log:              ctrl.Log.WithName("controllers").WithName("ZookeeperCluster"),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		RemoteRequest:    remoteRequest,
+		StatefulSetQueue: &sync.Map{},
 		OwnerReference: metav1.OwnerReference{
 			APIVersion:         gvk.GroupVersion().String(),
 			Kind:               gvk.Kind,

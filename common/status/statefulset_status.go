@@ -20,18 +20,24 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/qilitang/zookeeper-operator/utils"
 	"k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"strings"
+	"time"
 )
 
 type StatefulSetResourcesStatus struct {
-	StatefulSet *v1.StatefulSet
+	RemoteRequest *utils.RemoteRequest
+	StatefulSet   *v1.StatefulSet
 	client.Client
 	Log logr.Logger
 }
+
+const runExecTimeout = 10
 
 func (t StatefulSetResourcesStatus) IsReady() bool {
 
@@ -56,6 +62,30 @@ func (t StatefulSetResourcesStatus) IsReady() bool {
 	}
 
 	return true
+}
+
+func (t StatefulSetResourcesStatus) IsRoleReady() (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), runExecTimeout*time.Second)
+	defer cancel()
+	cmd := []string{
+		"sh",
+		"-c",
+		"echo stat | nc localhost 2181",
+	}
+	stdout, stderr, err := t.RemoteRequest.Exec(ctx, t.StatefulSet.Namespace, t.StatefulSet.Name+"-0", utils.ZookeeperContainerName, cmd)
+	if err != nil {
+		return "", false
+	}
+	if stderr != "" {
+		return "", false
+	}
+	if strings.Contains(stdout, "Mode: leader") {
+		return utils.AnnotationsRoleLeader, true
+
+	} else if strings.Contains(stdout, "Mode: follower") {
+		return utils.AnnotationsRoleFollower, true
+	}
+	return "", false
 }
 
 func (t StatefulSetResourcesStatus) IsPvcReady() bool {
@@ -90,19 +120,6 @@ func (t StatefulSetResourcesStatus) IsPvcReady() bool {
 		}
 	}
 	return true
-}
-
-func (t StatefulSetResourcesStatus) IsForbidden(annotation map[string]string) bool {
-
-	if annotation == nil {
-		return false
-	}
-
-	//if annotation[t.StatefulSet.Name+apis.StsRunStatus] == apis.StsRunForbid {
-	//	return true
-	//}
-
-	return false
 }
 
 func (t StatefulSetResourcesStatus) IsFailed() (bool, *ProgressStep) {

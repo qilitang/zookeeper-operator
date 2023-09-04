@@ -171,6 +171,10 @@ func GetClusterLog4JQuietConfigName(clusterName string) string {
 func GetClusterLog4JConfigName(clusterName string) string {
 	return fmt.Sprintf("%s-log4j", clusterName)
 }
+func CreateScriptConfigMapName(clusterName string) string {
+	return fmt.Sprintf("%s-script", clusterName)
+}
+
 func GetClusterCustomConfigName(clusterName string) string {
 	return fmt.Sprintf("%s-zoo-cfg", clusterName)
 }

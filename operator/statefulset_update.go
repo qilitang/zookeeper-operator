@@ -17,14 +17,18 @@ limitations under the License.
 package operator
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"reflect"
-
 	"github.com/go-logr/logr"
-	appsv1 "k8s.io/api/apps/v1"
+	"github.com/qilitang/zookeeper-operator/utils"
+	"k8s.io/apimachinery/pkg/types"
+	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type UpdateZookeeperFunction func(cluster *zookeeperv1.ZookeeperCluster, set *appsv1.StatefulSet, updateFlag *bool) error
@@ -43,70 +47,86 @@ type ZookeeperChecker struct {
 	Log logr.Logger
 }
 
-//func (c *ZookeeperChecker) CheckVolumeSizeChanged() UpdateZookeeperFunction {
-//	return func(cluster *zookeeperv1.ZookeeperCluster, set *appsv1.StatefulSet, updateFlag *bool) error {
-//		*updateFlag = false
-//		return options.UpdateVolumeSizeChanged(
-//			options.ApplyCustomStorage(cluster.Spec.Storage, set.Name, cluster.Spec.CustomResources), c.Client, set)
-//	}
-//}
+func (c *ZookeeperChecker) CheckVolumeSizeChangedApplyToPVC() UpdateZookeeperFunction {
+	return func(cluster *zookeeperv1.ZookeeperCluster, set *appsv1.StatefulSet, updateFlag *bool) error {
+		*updateFlag = false
+		errs := make([]error, 0)
 
-//func (c *ZookeeperChecker) CheckVolumeSizeChangedApplyToPVC() UpdateZookeeperFunction {
-//	return func(cluster *mysqlv1.MysqlCluster, set *appsv1.StatefulSet, updateFlag *bool) error {
-//		*updateFlag = false
-//		errs := make([]error, 0)
-//
-//		// sts 下的每一个 pvc annotation 都更新
-//		for i := 0; i < int(*set.Spec.Replicas); i++ {
-//			// todo confirm pvcName
-//			pvcName := fmt.Sprintf("data-%s-%d", set.Name, i)
-//			pvc := &corev1.PersistentVolumeClaim{}
-//			err := c.Client.Get(context.Background(), types.NamespacedName{Namespace: set.Namespace, Name: pvcName}, pvc)
-//			if err != nil {
-//				errs = append(errs, err)
-//				continue
-//			}
-//			annotations := pvc.Annotations
-//			if annotations == nil {
-//				annotations = make(map[string]string)
-//			}
-//			newStorage := options.ApplyCustomStorage(cluster.Spec.Storage, set.Name, cluster.Spec.CustomResources)
-//			needUpdate := false
-//			oldStorageSize, exist := pvc.Annotations["storage"]
-//			newStorageSize := fmt.Sprintf("%d", *newStorage.Size)
-//			if !exist || oldStorageSize != newStorageSize {
-//				needUpdate = true
-//				annotations["storage"] = newStorageSize
-//			}
-//			pvc.Annotations = annotations
-//			if needUpdate {
-//				err := c.Client.Update(context.Background(), pvc)
-//				if err != nil {
-//					errs = append(errs, err)
-//				}
-//			}
-//		}
-//
-//		if len(errs) > 0 {
-//			return errs[0]
-//		}
-//		return nil
-//	}
-//}
+		// sts 下的每一个 pvc annotation 都更新
+		for i := 0; i < int(*set.Spec.Replicas); i++ {
+			// todo confirm pvcName
+			pvcName := fmt.Sprintf("data-%s-%d", set.Name, i)
+			pvc := &corev1.PersistentVolumeClaim{}
+			err := c.Client.Get(context.Background(), types.NamespacedName{Namespace: set.Namespace, Name: pvcName}, pvc)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			needUpdate := false
+			oldStorageSize := pvc.Spec.Resources.Requests.Storage()
+			newStorageSize := &cluster.Spec.ZookeeperResources.Storage.Size
+			if !reflect.DeepEqual(oldStorageSize, newStorageSize) {
+				needUpdate = true
+			}
+			if needUpdate {
+				newPvc := pvc.DeepCopy()
+				newPvc.Spec.Resources.Requests = corev1.ResourceList{
+					corev1.ResourceStorage: cluster.Spec.ZookeeperResources.Storage.Size,
+				}
+				err := c.Client.Update(context.Background(), newPvc)
+				if err != nil {
+					errs = append(errs, err)
+				}
+			}
+		}
+
+		if len(errs) > 0 {
+			return errs[0]
+		}
+		return nil
+	}
+}
 
 func (c *ZookeeperChecker) CheckResourceLimitChanged() UpdateZookeeperFunction {
 	return func(cluster *zookeeperv1.ZookeeperCluster, set *appsv1.StatefulSet, updateFlag *bool) error {
 		needUpdate := false
-		oldResource := set.Spec.Template.Spec.Containers[0].Resources.DeepCopy()
-
-		//set.Spec.Template.Spec.Containers[0].Resources = *cluster.Spec.Resources.DeepCopy()
-
-		if !reflect.DeepEqual(*oldResource, set.Spec.Template.Spec.Containers[0].Resources) {
+		oldResource := &corev1.ResourceRequirements{}
+		for _, container := range set.Spec.Template.Spec.Containers {
+			if container.Name == utils.ZookeeperContainerName {
+				oldResource = container.Resources.DeepCopy()
+			}
+		}
+		newResource := cluster.Spec.ZookeeperResources.Resources.DeepCopy()
+		if !reflect.DeepEqual(oldResource, newResource) {
 			needUpdate = true
 		}
 
 		if needUpdate {
-			c.Log.Info(fmt.Sprintf(" CheckResourceLimitChanged, update set: %v", set.Spec.Template.Spec.Containers[0].Resources))
+			containers := make([]corev1.Container, 0)
+			for _, container := range set.Spec.Template.Spec.Containers {
+				if container.Name == utils.ZookeeperContainerName {
+					container.Resources = *newResource
+					// 更改 env 设置
+					for _, env := range container.Env {
+						if env.Name == utils.ZookeeperJVMFLAGSEnvName {
+							env.Value = fmt.Sprintf("-Xms%dm", utils.ChangeBToMBWithJVMRatio(newResource.Limits.Memory().Value()))
+							continue
+						}
+						if env.Name == utils.ZookeeperHeapEnvName {
+							env.Value = fmt.Sprintf("%d", utils.ChangeBToMBWithJVMRatio(newResource.Limits.Memory().Value()))
+						}
+					}
+					container.Env = append(container.Env, []corev1.EnvVar{}...)
+					containers = append(containers, container)
+				} else {
+					containers = append(containers, container)
+				}
+			}
+
+			set.Spec.Template.Spec.Containers = containers
+			oldData, _ := json.Marshal(oldResource)
+			newData, _ := json.Marshal(newResource)
+			c.Log.Info(fmt.Sprintf("CheckResourceLimitChanged, update set %s: %v -> %v", set.Name, string(oldData), string(newData)))
 			*updateFlag = true
 			return nil
 		}

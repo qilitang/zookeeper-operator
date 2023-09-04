@@ -18,6 +18,7 @@ package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -155,9 +156,10 @@ type ZookeeperResources struct {
 	Storage StorageSpec `json:"storage,omitempty"`
 }
 
+// +kubebuilder:object:generate:root=true
 type StorageSpec struct {
 	// Size describes database persistent volume storage
-	Size *int64 `json:"size"`
+	Size resource.Quantity `json:"size"`
 
 	// StorageClass describes database volume storageClass definition
 	// If not specified, use default StorageClass
@@ -174,10 +176,6 @@ type ZookeeperClusterStatus struct {
 
 // +kubebuilder:object:generate:root=true
 type ClusterStatus struct {
-	// observedGeneration is the most recent generation observed for this StatefulSet. It corresponds to the
-	// StatefulSet's generation, which is updated on mutation by the API Server.
-	// +optional
-	ObservedGeneration *int64 `json:"observedGeneration,omitempty" protobuf:"varint,1,opt,name=observedGeneration"`
 
 	// replicas is the number of Pods created by the StatefulSet controller.
 	Replicas int32 `json:"replicas" protobuf:"varint,2,opt,name=replicas"`
@@ -185,13 +183,9 @@ type ClusterStatus struct {
 	// readyReplicas is the number of Pods created by the StatefulSet controller that have a Ready Condition.
 	ReadyReplicas int32 `json:"readyReplicas,omitempty" protobuf:"varint,3,opt,name=readyReplicas"`
 
-	// CurrentReplicas is the number of Pods created by the StatefulSet controller from the StatefulSet version
-	// indicated by currentRevision.
-	CurrentReplicas int32 `json:"currentReplicas,omitempty" protobuf:"varint,4,opt,name=currentReplicas"`
-
 	// updatedReplicas is the number of Pods created by the StatefulSet controller from the StatefulSet version
 	// indicated by updateRevision.
-	UpdatedReplicas int32 `json:"updatedReplicas,omitempty" protobuf:"varint,5,opt,name=updatedReplicas"`
+	UpdatingReplicas int32 `json:"updatedReplicas,omitempty" protobuf:"varint,5,opt,name=updatedReplicas"`
 
 	// currentRevision, if not empty, indicates the version of the StatefulSet used to generate Pods in the
 	// sequence [0,currentReplicas).
@@ -201,11 +195,9 @@ type ClusterStatus struct {
 	// [replicas-updatedReplicas,replicas)
 	UpdateRevision string `json:"updateRevision,omitempty" protobuf:"bytes,7,opt,name=updateRevision"`
 
-	// collisionCount is the count of hash collisions for the StatefulSet. The StatefulSet controller
-	// uses this field as a collision avoidance mechanism when it needs to create the name for the
-	// newest ControllerRevision.
-	// +optional
-	CollisionCount *int32 `json:"collisionCount,omitempty" protobuf:"varint,9,opt,name=collisionCount"`
+	Actions map[string]string `json:"actions,omitempty" yaml:"actions,omitempty" protobuf:"bytes,8,opt,name=actions"`
+
+	Members map[string]string `json:"members,omitempty" yaml:"members,omitempty" protobuf:"bytes,8,opt,name=members"`
 
 	CustomStatus  string `json:"customStatus,omitempty"`
 	FSMStatus     string `json:"fsmStatus,omitempty"`
