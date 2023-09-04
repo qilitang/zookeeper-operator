@@ -100,10 +100,9 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			_, loader := r.StatefulSetQueue.LoadOrStore(newSet.Name, true)
 			if !loader {
 				go func() {
-					if err := r.pollStatefulSet(ctx, cluster, newSet, serverIndex); err != nil {
+					if err := r.pollStatefulSet(ctx, cluster, newSet.Name, serverIndex); err != nil {
 						log.Error(err, "pollStatefulSet failed", "statefulSet.Name", newSet.Name)
 					}
-					r.StatefulSetQueue.Delete(set.Name)
 				}()
 			}
 			if err = r.Get(ctx, client.ObjectKey{Name: newSet.Name, Namespace: newSet.Namespace}, set); err != nil {
@@ -125,10 +124,9 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 		_, loader := r.StatefulSetQueue.LoadOrStore(set.Name, true)
 		if !loader {
 			go func() {
-				if err := r.pollStatefulSet(ctx, cluster, set, serverIndex); err != nil {
+				if err := r.pollStatefulSet(ctx, cluster, set.Name, serverIndex); err != nil {
 					log.Error(err, "pollStatefulSet failed", "statefulSet.Name", set.Name)
 				}
-				r.StatefulSetQueue.Delete(set.Name)
 			}()
 		}
 		newSet := &v1.StatefulSet{}
@@ -324,7 +322,9 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 		"-c",
 		"echo \"conf\" | nc localhost 2181 | grep \"server\\.\"",
 	}
-	stdout, err := r.Exec(ctx, leaderPodName, cluster, cmd)
+	timeOutCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	stdout, err := r.Exec(timeOutCtx, leaderPodName, cluster, cmd)
 	if err != nil {
 		return err
 	}
@@ -350,7 +350,7 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 						options.GetClusterReplicaSetName(cluster.Name, serverIndex),
 						cluster.Namespace, serverIndex, true)),
 			}
-			_, err = r.Exec(ctx, leaderPodName, cluster, addCmd)
+			_, err = r.Exec(timeOutCtx, leaderPodName, cluster, addCmd)
 			if err != nil {
 				return err
 			}
@@ -413,7 +413,7 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 //	return nil
 //}
 
-func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, set *v1.StatefulSet, serverIndex int) error {
+func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, setName string, serverIndex int) error {
 	log := r.Log.WithValues("zookeeper Cluster", "pollStatefulSet")
 	if utils.IsContextDone(ctx) {
 		log.V(2).Info("ctx is done")
@@ -427,7 +427,7 @@ func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluste
 			return nil
 		}
 		newSet := &v1.StatefulSet{}
-		err := r.Client.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet)
+		err := r.Client.Get(ctx, client.ObjectKey{Name: setName, Namespace: cluster.Namespace}, newSet)
 		if err == nil {
 			setStatus := status.StatefulSetResourcesStatus{
 				RemoteRequest: r.RemoteRequest,
@@ -436,27 +436,30 @@ func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluste
 				Log:           log.WithName("StatefulSetResourcesStatus"),
 			}
 			if setStatus.IsReady() {
+				log.Info("rolling update statefulSet, is ready, wait role ready", "StatefulSet.Name", setName)
 				role, ready := setStatus.IsRoleReady()
 				if ready {
-					if err = r.changeRoleAnnotation(ctx, set, role); err != nil {
-						return err
-					}
+					log.Info("rolling update statefulSet, is role ready, reConfig cluster", "StatefulSet.Name", setName)
 					if err = r.reConfigCluster(ctx, cluster, serverIndex); err != nil {
-						return err
+						log.Info("Failed to reconfig cluster, wait try next", "StatefulSet.Name", setName)
+						continue
 					}
-					return nil
+					r.StatefulSetQueue.Delete(newSet.Name)
+					if err := r.changeRoleAnnotation(ctx, newSet, role); err == nil {
+						return nil
+					}
+					log.Info("changeRoleAnnotation failed, wait try next", "statefulSet.Name", newSet.Name)
 				}
 			}
-			log.Info("rolling update statefulSet, is not ready, no update next set. ", "StatefulSet.Name", set.Name)
+			log.Info("rolling update statefulSet, is not ready, no update next set. ", "StatefulSet.Name", setName)
 		} else {
-			log.Info(fmt.Sprintf("statefulSet %s is not create yet ?", set.Name))
-			return nil
+			log.Info(fmt.Sprintf("statefulSet %s is not create yet ?", setName))
 		}
 		// StatefulSet is either not created or generation is not yet reached
 		if time.Since(start) >= opts.Timeout {
 			// Timeout reached, no good result available, time to quit
 			log.V(1).Info("%s/%s - TIMEOUT reached")
-			return fmt.Errorf("waitStatefulSet(%s/%s) - wait timeout", set.Namespace, set.Name)
+			return fmt.Errorf("waitStatefulSet(%s/%s) - wait timeout", cluster.Namespace, setName)
 		}
 		pollBack(ctx, opts)
 	}

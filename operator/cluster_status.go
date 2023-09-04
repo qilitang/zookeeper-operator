@@ -68,7 +68,7 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 			RemoteRequest: t.RemoteRequest,
 			StatefulSet:   &setList.Items[i],
 			Client:        t.Client,
-			Log:           t.Log.WithName("StatefulSetResourcesStatus"),
+			Log:           t.Log.WithName("StatefulSetStatus"),
 		}
 
 		if setStatus.IsReady() {
