@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	options "github.com/qilitang/zookeeper-operator/common/options"
-	"github.com/qilitang/zookeeper-operator/utils"
+	options2 "github.com/qilitang/zookeeper-operator/pkg/common/options"
+	utils2 "github.com/qilitang/zookeeper-operator/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,7 +67,7 @@ func (t ClusterSubResources) createBaseService() (interface{}, bool, error) {
 	return &service, true, nil
 }
 
-func (t ClusterSubResources) CreateService(clusterServiceType string) options.ResourcesCreator {
+func (t ClusterSubResources) CreateService(clusterServiceType string) options2.ResourcesCreator {
 	return func() (res interface{}, canUpdate bool, err error) {
 		baseService, canUpdate, err := t.createBaseService()
 		if err != nil {
@@ -75,12 +75,12 @@ func (t ClusterSubResources) CreateService(clusterServiceType string) options.Re
 		}
 		service := baseService.(*corev1.Service)
 		// Choose a service will be exposed
-		if options.GetIngressType(t.Cluster.Annotations) != "" {
-			clusterServiceType = options.GetIngressType(t.Cluster.Annotations)
+		if options2.GetIngressType(t.Cluster.Annotations) != "" {
+			clusterServiceType = options2.GetIngressType(t.Cluster.Annotations)
 		}
 		service.Annotations = t.Cluster.DeepCopy().Annotations
 		switch clusterServiceType {
-		case options.NodePortName:
+		case options2.NodePortName:
 			service.Spec.Type = corev1.ServiceTypeNodePort
 		}
 		return service, true, nil
@@ -93,7 +93,7 @@ func (t ClusterSubResources) CreateHeadlessService() (interface{}, bool, error) 
 		return nil, canUpdate, err
 	}
 	service := baseService.(*corev1.Service)
-	service.Name = options.GetClusterHeadlessServiceName(t.Cluster.Name)
+	service.Name = options2.GetClusterHeadlessServiceName(t.Cluster.Name)
 	if service.Annotations == nil {
 		service.Annotations = make(map[string]string, 0)
 	}
@@ -122,7 +122,7 @@ func (t ClusterSubResources) CreateLog4JQuietConfigMap() (interface{}, bool, err
 	labels := NewClusterLabel(t.Cluster)
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      options.GetClusterLog4JQuietConfigName(t.Cluster.Name),
+			Name:      options2.GetClusterLog4JQuietConfigName(t.Cluster.Name),
 			Namespace: t.Cluster.Namespace,
 			Labels:    labels,
 		},
@@ -137,7 +137,7 @@ func (t ClusterSubResources) CreateLog4JConfigMap() (interface{}, bool, error) {
 	labels := NewClusterLabel(t.Cluster)
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      options.GetClusterLog4JConfigName(t.Cluster.Name),
+			Name:      options2.GetClusterLog4JConfigName(t.Cluster.Name),
 			Namespace: t.Cluster.Namespace,
 			Labels:    labels,
 		},
@@ -151,10 +151,10 @@ func (t ClusterSubResources) CreateLog4JConfigMap() (interface{}, bool, error) {
 func (t ClusterSubResources) CreateCustomConfigMap() (interface{}, bool, error) {
 	labels := NewClusterLabel(t.Cluster)
 	data := map[string]string{}
-	utils.IncludeNonEmpty(data, "zoo.cfg", WithCustomConfig(t.Cluster))
+	utils2.IncludeNonEmpty(data, "zoo.cfg", WithCustomConfig(t.Cluster))
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      options.GetClusterCustomConfigName(t.Cluster.Name),
+			Name:      options2.GetClusterCustomConfigName(t.Cluster.Name),
 			Namespace: t.Cluster.Namespace,
 			Labels:    labels,
 		},
@@ -165,7 +165,7 @@ func (t ClusterSubResources) CreateCustomConfigMap() (interface{}, bool, error) 
 func (t ClusterSubResources) CreateScriptConfigMap() (interface{}, bool, error) {
 	labels := NewClusterLabel(t.Cluster)
 	data := map[string]string{}
-	utils.IncludeNonEmpty(data, "script.sh", `
+	utils2.IncludeNonEmpty(data, "script.sh", `
 #!/bin/bash
 
 output=$(echo stat | nc localhost 2181 2>/dev/null)
@@ -183,7 +183,7 @@ fi
 `)
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      options.CreateScriptConfigMapName(t.Cluster.Name),
+			Name:      options2.CreateScriptConfigMapName(t.Cluster.Name),
 			Namespace: t.Cluster.Namespace,
 			Labels:    labels,
 		},
@@ -192,12 +192,12 @@ fi
 	return &configmap, true, nil
 }
 
-func (t ClusterSubResources) CreateDynamicConfigMap(ctx context.Context, serverIndex int) options.ResourcesCreator {
+func (t ClusterSubResources) CreateDynamicConfigMap(ctx context.Context, serverIndex int) options2.ResourcesCreator {
 	return func() (res interface{}, canUpdate bool, err error) {
 		key := "zoo.cfg.dynamic"
 		info := WithDynamicConfig(t.Cluster, serverIndex)
 		cm := &corev1.ConfigMap{}
-		err = t.Get(ctx, types.NamespacedName{Name: options.GetClusterDynamicConfigName(t.Cluster.Name), Namespace: t.Cluster.Namespace}, cm)
+		err = t.Get(ctx, types.NamespacedName{Name: options2.GetClusterDynamicConfigName(t.Cluster.Name), Namespace: t.Cluster.Namespace}, cm)
 		if err != nil && errors.IsNotFound(err) {
 			return t.createDynamicConfig(key, info), true, nil
 		}
@@ -214,10 +214,10 @@ func (t ClusterSubResources) CreateDynamicConfigMap(ctx context.Context, serverI
 func (t ClusterSubResources) createDynamicConfig(key, info string) *corev1.ConfigMap {
 	labels := NewClusterLabel(t.Cluster)
 	data := map[string]string{}
-	utils.IncludeNonEmpty(data, key, info)
+	utils2.IncludeNonEmpty(data, key, info)
 	configmap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      options.GetClusterDynamicConfigName(t.Cluster.Name),
+			Name:      options2.GetClusterDynamicConfigName(t.Cluster.Name),
 			Namespace: t.Cluster.Namespace,
 			Labels:    labels,
 		},
@@ -226,7 +226,7 @@ func (t ClusterSubResources) createDynamicConfig(key, info string) *corev1.Confi
 	return configmap
 }
 
-func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) options.ResourcesCreator {
+func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) options2.ResourcesCreator {
 	return func() (res interface{}, canUpdate bool, err error) {
 		baseService, canUpdate, err := t.createBaseService()
 		if err != nil {
@@ -243,57 +243,57 @@ func (t ClusterSubResources) CreateReplicaHeadlessService(setName string) option
 		service.Spec.Type = corev1.ServiceTypeClusterIP
 		//service.Spec.ClusterIP = corev1.ClusterIPNone
 
-		service.Name = options.GetSetServiceHeadlessName(setName)
+		service.Name = options2.GetSetServiceHeadlessName(setName)
 		labels := make(map[string]string, 0)
-		labels[utils.SetName] = setName
-		service.Spec.Selector = utils.CopyMap(labels)
-		service.Labels = utils.CopyMap(labels)
+		labels[utils2.SetName] = setName
+		service.Spec.Selector = utils2.CopyMap(labels)
+		service.Labels = utils2.CopyMap(labels)
 
 		return service, canUpdate, nil
 	}
 }
 
 func NewClusterLabel(cluster *zookeeperv1.ZookeeperCluster) map[string]string {
-	labels := utils.CopyMap(cluster.Spec.Labels)
-	labels[utils.AppNameLabelKey] = cluster.Name
-	labels[utils.CreatedByLabelKey] = "qilitang"
+	labels := utils2.CopyMap(cluster.Spec.Labels)
+	labels[utils2.AppNameLabelKey] = cluster.Name
+	labels[utils2.CreatedByLabelKey] = "qilitang"
 	return labels
 }
 func NewClusterAnnotations(cluster *zookeeperv1.ZookeeperCluster) map[string]string {
-	annotations := utils.CopyMap(cluster.Annotations)
-	annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleNotReady
+	annotations := utils2.CopyMap(cluster.Annotations)
+	annotations[utils2.AnnotationsRoleKey] = utils2.AnnotationsRoleNotReady
 	return annotations
 }
 
 func WithCustomConfig(cluster *zookeeperv1.ZookeeperCluster) string {
 	b := &bytes.Buffer{}
-	utils.Iline(b, 0, "# custom zookeeper config")
-	utils.Iline(b, 0, "4lw.commands.whitelist=*")
-	utils.Iline(b, 0, "dataDir=/data")
-	utils.Iline(b, 0, "standaloneEnabled=false")
-	utils.Iline(b, 0, "reconfigEnabled=true")
-	utils.Iline(b, 0, "skipACL=yes")
-	utils.Iline(b, 0, "clientPort=2181")
-	utils.Iline(b, 0, "metricsProvider.className=org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider")
+	utils2.Iline(b, 0, "# custom zookeeper config")
+	utils2.Iline(b, 0, "4lw.commands.whitelist=*")
+	utils2.Iline(b, 0, "dataDir=/data")
+	utils2.Iline(b, 0, "standaloneEnabled=false")
+	utils2.Iline(b, 0, "reconfigEnabled=true")
+	utils2.Iline(b, 0, "skipACL=yes")
+	utils2.Iline(b, 0, "clientPort=2181")
+	utils2.Iline(b, 0, "metricsProvider.className=org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider")
 	//utils.Iline(b, 0, "metricsProvider.httpPort=7000")
-	utils.Iline(b, 0, "metricsProvider.exportJvmInfo=true")
-	utils.Iline(b, 0, "admin.serverPort=8080")
-	utils.Iline(b, 0, "dynamicConfigFile=/conf/zoo.cfg.dynamic")
+	utils2.Iline(b, 0, "metricsProvider.exportJvmInfo=true")
+	utils2.Iline(b, 0, "admin.serverPort=8080")
+	utils2.Iline(b, 0, "dynamicConfigFile=/conf/zoo.cfg.dynamic")
 	cc := withDefaultConfig(cluster.Spec.ZookeeperCustomConf)
-	utils.Iline(b, 0, fmt.Sprintf("initLimit=%d", cc.InitLimit))
-	utils.Iline(b, 0, fmt.Sprintf("syncLimit=%d", cc.SyncLimit))
-	utils.Iline(b, 0, fmt.Sprintf("tickTime=%d", cc.TickTime))
-	utils.Iline(b, 0, fmt.Sprintf("globalOutstandingLimit=%d", cc.GlobalOutstandingLimit))
-	utils.Iline(b, 0, fmt.Sprintf("preAllocSize=%d", cc.PreAllocSize))
-	utils.Iline(b, 0, fmt.Sprintf("snapCount=%d", cc.SnapCount))
-	utils.Iline(b, 0, fmt.Sprintf("commitLogCount=%d", cc.CommitLogCount))
-	utils.Iline(b, 0, fmt.Sprintf("snapSizeLimitInKb=%d", cc.SnapSizeLimitInKb))
-	utils.Iline(b, 0, fmt.Sprintf("maxCnxns=%d", cc.MaxCnxns))
-	utils.Iline(b, 0, fmt.Sprintf("maxClientCnxns=%d", cc.MaxClientCnxns))
-	utils.Iline(b, 0, fmt.Sprintf("minSessionTimeout=%d", cc.MinSessionTimeout))
-	utils.Iline(b, 0, fmt.Sprintf("autopurge.snapRetainCount=%d", cc.AutoPurgeSnapRetainCount))
-	utils.Iline(b, 0, fmt.Sprintf("autopurge.purgeInterval=%d", cc.AutoPurgePurgeInterval))
-	utils.Iline(b, 0, fmt.Sprintf("quorumListenOnAllIPs=%s", "true"))
+	utils2.Iline(b, 0, fmt.Sprintf("initLimit=%d", cc.InitLimit))
+	utils2.Iline(b, 0, fmt.Sprintf("syncLimit=%d", cc.SyncLimit))
+	utils2.Iline(b, 0, fmt.Sprintf("tickTime=%d", cc.TickTime))
+	utils2.Iline(b, 0, fmt.Sprintf("globalOutstandingLimit=%d", cc.GlobalOutstandingLimit))
+	utils2.Iline(b, 0, fmt.Sprintf("preAllocSize=%d", cc.PreAllocSize))
+	utils2.Iline(b, 0, fmt.Sprintf("snapCount=%d", cc.SnapCount))
+	utils2.Iline(b, 0, fmt.Sprintf("commitLogCount=%d", cc.CommitLogCount))
+	utils2.Iline(b, 0, fmt.Sprintf("snapSizeLimitInKb=%d", cc.SnapSizeLimitInKb))
+	utils2.Iline(b, 0, fmt.Sprintf("maxCnxns=%d", cc.MaxCnxns))
+	utils2.Iline(b, 0, fmt.Sprintf("maxClientCnxns=%d", cc.MaxClientCnxns))
+	utils2.Iline(b, 0, fmt.Sprintf("minSessionTimeout=%d", cc.MinSessionTimeout))
+	utils2.Iline(b, 0, fmt.Sprintf("autopurge.snapRetainCount=%d", cc.AutoPurgeSnapRetainCount))
+	utils2.Iline(b, 0, fmt.Sprintf("autopurge.purgeInterval=%d", cc.AutoPurgePurgeInterval))
+	utils2.Iline(b, 0, fmt.Sprintf("quorumListenOnAllIPs=%s", "true"))
 	return b.String()
 }
 
@@ -354,8 +354,8 @@ func withDefaultConfig(zc zookeeperv1.ZookeeperConfig) zookeeperv1.ZookeeperConf
 func WithDynamicConfig(cluster *zookeeperv1.ZookeeperCluster, serverIndex int) string {
 	b := &bytes.Buffer{}
 	for i := 0; i < serverIndex+1; i++ {
-		setName := options.GetClusterReplicaSetName(cluster.Name, i)
-		utils.Iline(b, 0, options.GetServerDomain(setName, cluster.Namespace, i, false))
+		setName := options2.GetClusterReplicaSetName(cluster.Name, i)
+		utils2.Iline(b, 0, options2.GetServerDomain(setName, cluster.Namespace, i, false))
 	}
 	return b.String()
 }

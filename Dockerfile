@@ -14,10 +14,10 @@ RUN go mod download
 # Copy the go source
 COPY main.go main.go
 COPY api/ api/
-COPY controllers/ controllers/
-COPY operator/ operator/
-COPY utils/ utils/
-COPY common/ common/
+COPY pkg/controllers/ controllers/
+COPY pkg/operator/ operator/
+COPY pkg/utils/ utils/
+COPY pkg/common/ common/
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command

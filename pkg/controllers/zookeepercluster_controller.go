@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	"github.com/qilitang/zookeeper-operator/utils"
+	"github.com/qilitang/zookeeper-operator/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-logr/logr"
-	"github.com/qilitang/zookeeper-operator/utils"
+	utils2 "github.com/qilitang/zookeeper-operator/pkg/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -92,7 +92,7 @@ func (c *ZookeeperChecker) CheckResourceLimitChanged() UpdateZookeeperFunction {
 		needUpdate := false
 		oldResource := &corev1.ResourceRequirements{}
 		for _, container := range set.Spec.Template.Spec.Containers {
-			if container.Name == utils.ZookeeperContainerName {
+			if container.Name == utils2.ZookeeperContainerName {
 				oldResource = container.Resources.DeepCopy()
 			}
 		}
@@ -104,16 +104,16 @@ func (c *ZookeeperChecker) CheckResourceLimitChanged() UpdateZookeeperFunction {
 		if needUpdate {
 			containers := make([]corev1.Container, 0)
 			for _, container := range set.Spec.Template.Spec.Containers {
-				if container.Name == utils.ZookeeperContainerName {
+				if container.Name == utils2.ZookeeperContainerName {
 					container.Resources = *newResource
 					// 更改 env 设置
 					for _, env := range container.Env {
-						if env.Name == utils.ZookeeperJVMFLAGSEnvName {
-							env.Value = fmt.Sprintf("-Xms%dm", utils.ChangeBToMBWithJVMRatio(newResource.Limits.Memory().Value()))
+						if env.Name == utils2.ZookeeperJVMFLAGSEnvName {
+							env.Value = fmt.Sprintf("-Xms%dm", utils2.ChangeBToMBWithJVMRatio(newResource.Limits.Memory().Value()))
 							continue
 						}
-						if env.Name == utils.ZookeeperHeapEnvName {
-							env.Value = fmt.Sprintf("%d", utils.ChangeBToMBWithJVMRatio(newResource.Limits.Memory().Value()))
+						if env.Name == utils2.ZookeeperHeapEnvName {
+							env.Value = fmt.Sprintf("%d", utils2.ChangeBToMBWithJVMRatio(newResource.Limits.Memory().Value()))
 						}
 					}
 					container.Env = append(container.Env, []corev1.EnvVar{}...)

@@ -19,14 +19,14 @@ package operator
 import (
 	"fmt"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	options "github.com/qilitang/zookeeper-operator/common/options"
-	"github.com/qilitang/zookeeper-operator/utils"
+	options2 "github.com/qilitang/zookeeper-operator/pkg/common/options"
+	utils2 "github.com/qilitang/zookeeper-operator/pkg/utils"
 	apsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/pointer"
 )
 
-func WithZookeeperContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperImageName string, index int) options.StatefulSetResourcesOpts {
+func WithZookeeperContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperImageName string, index int) options2.StatefulSetResourcesOpts {
 	return CreateZookeeper(cluster, CreateZookeeperContainer(cluster, zookeeperImageName, index))
 }
 
@@ -38,7 +38,7 @@ func CreateZookeeperContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperIm
 	}
 	c := corev1.Container{
 		Env:       NewZookeeperContainerEnv(cluster, index),
-		Name:      utils.ZookeeperContainerName,
+		Name:      utils2.ZookeeperContainerName,
 		Image:     zookeeperImageName,
 		Resources: resource,
 		Ports: []corev1.ContainerPort{
@@ -89,7 +89,7 @@ func CreateZookeeperContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperIm
 
 }
 
-func WithInitContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperImage string, index int) options.StatefulSetResourcesOpts {
+func WithInitContainer(cluster *zookeeperv1.ZookeeperCluster, zookeeperImage string, index int) options2.StatefulSetResourcesOpts {
 	return func(set *apsv1.StatefulSet) error {
 		container, err := CreateInitContainer(cluster, zookeeperImage, index)
 		if err != nil {
@@ -191,7 +191,7 @@ func CreateInitContainer(cluster *zookeeperv1.ZookeeperCluster, initImageName st
 //	}
 //}
 
-func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container) options.StatefulSetResourcesOpts {
+func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container) options2.StatefulSetResourcesOpts {
 	return func(set *apsv1.StatefulSet) error {
 		c.VolumeMounts = []corev1.VolumeMount{
 			{
@@ -230,7 +230,7 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 				Name: "log4j-quiet",
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{Name: options.GetClusterLog4JQuietConfigName(cluster.Name)},
+						LocalObjectReference: corev1.LocalObjectReference{Name: options2.GetClusterLog4JQuietConfigName(cluster.Name)},
 					},
 				},
 			},
@@ -238,7 +238,7 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 				Name: "log4j",
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{Name: options.GetClusterLog4JConfigName(cluster.Name)},
+						LocalObjectReference: corev1.LocalObjectReference{Name: options2.GetClusterLog4JConfigName(cluster.Name)},
 					},
 				},
 			},
@@ -246,7 +246,7 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 				Name: "zoo-cfg",
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{Name: options.GetClusterCustomConfigName(cluster.Name)},
+						LocalObjectReference: corev1.LocalObjectReference{Name: options2.GetClusterCustomConfigName(cluster.Name)},
 					},
 				},
 			},
@@ -254,7 +254,7 @@ func CreateZookeeper(cluster *zookeeperv1.ZookeeperCluster, c *corev1.Container)
 				Name: "zoo-dynamic",
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{Name: options.GetClusterDynamicConfigName(cluster.Name)},
+						LocalObjectReference: corev1.LocalObjectReference{Name: options2.GetClusterDynamicConfigName(cluster.Name)},
 					},
 				},
 			},
@@ -310,7 +310,7 @@ func NewZookeeperContainerEnv(cluster *zookeeperv1.ZookeeperCluster, index int) 
 	env = append(env, []corev1.EnvVar{
 		{
 			Name:  "DOMAIN",
-			Value: options.GetHeadlessDomain(cluster),
+			Value: options2.GetHeadlessDomain(cluster),
 		},
 		{
 			Name:  "QUORUM_PORT",
@@ -322,7 +322,7 @@ func NewZookeeperContainerEnv(cluster *zookeeperv1.ZookeeperCluster, index int) 
 		},
 		{
 			Name:  "CLIENT_HOST",
-			Value: options.GetClusterHeadlessServiceName(cluster.Name),
+			Value: options2.GetClusterHeadlessServiceName(cluster.Name),
 		},
 		{
 			Name:  "CLIENT_PORT",
@@ -330,7 +330,7 @@ func NewZookeeperContainerEnv(cluster *zookeeperv1.ZookeeperCluster, index int) 
 		},
 		{
 			Name:  "ADMIN_SERVER_HOST",
-			Value: options.GetClusterHeadlessServiceName(cluster.Name),
+			Value: options2.GetClusterHeadlessServiceName(cluster.Name),
 		},
 		{
 			Name:  "ADMIN_SERVER_PORT",
@@ -349,12 +349,12 @@ func NewZookeeperContainerEnv(cluster *zookeeperv1.ZookeeperCluster, index int) 
 			Value: fmt.Sprintf("%d", index),
 		},
 		{
-			Name:  utils.ZookeeperJVMFLAGSEnvName,
-			Value: fmt.Sprintf("-Xms%dm", utils.ChangeBToMBWithJVMRatio(resource.Limits.Memory().Value())),
+			Name:  utils2.ZookeeperJVMFLAGSEnvName,
+			Value: fmt.Sprintf("-Xms%dm", utils2.ChangeBToMBWithJVMRatio(resource.Limits.Memory().Value())),
 		},
 		{
-			Name:  utils.ZookeeperHeapEnvName,
-			Value: fmt.Sprintf("%d", utils.ChangeBToMBWithJVMRatio(resource.Limits.Memory().Value())),
+			Name:  utils2.ZookeeperHeapEnvName,
+			Value: fmt.Sprintf("%d", utils2.ChangeBToMBWithJVMRatio(resource.Limits.Memory().Value())),
 		},
 	}...)
 

@@ -21,14 +21,14 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	commonstatus "github.com/qilitang/zookeeper-operator/common/status"
-	"github.com/qilitang/zookeeper-operator/utils"
+	commonstatus "github.com/qilitang/zookeeper-operator/pkg/common/status"
+	utils2 "github.com/qilitang/zookeeper-operator/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ZookeeperClusterResourcesStatus struct {
-	RemoteRequest *utils.RemoteRequest
+	RemoteRequest *utils2.RemoteRequest
 	client.Client
 	Log     logr.Logger
 	Cluster *zookeeperv1.ZookeeperCluster
@@ -48,7 +48,7 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 
 	status.Replicas = 0
 	status.ReadyReplicas = 0
-	matchLabels := utils.CopyMap(NewClusterLabel(t.Cluster))
+	matchLabels := utils2.CopyMap(NewClusterLabel(t.Cluster))
 	setList := &appsv1.StatefulSetList{}
 
 	setOpts := []client.ListOption{

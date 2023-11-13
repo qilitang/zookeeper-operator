@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	"github.com/qilitang/zookeeper-operator/common/options"
-	"github.com/qilitang/zookeeper-operator/common/status"
-	"github.com/qilitang/zookeeper-operator/operator"
-	"github.com/qilitang/zookeeper-operator/utils"
+	options2 "github.com/qilitang/zookeeper-operator/pkg/common/options"
+	"github.com/qilitang/zookeeper-operator/pkg/common/status"
+	operator2 "github.com/qilitang/zookeeper-operator/pkg/operator"
+	utils2 "github.com/qilitang/zookeeper-operator/pkg/utils"
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -21,7 +21,7 @@ import (
 func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) error {
 	log := r.Log.WithValues("zookeeper cluster ", "syncReplica")
 	setList := &v1.StatefulSetList{}
-	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
+	matchLabels := utils2.CopyMap(operator2.NewClusterLabel(cluster))
 	setOpts := []client.ListOption{
 		client.InNamespace(cluster.Namespace),
 		client.MatchingLabels(matchLabels),
@@ -44,9 +44,9 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 	}
 	// 创建基础资源
 	// sync zookeeperCluster sub resource
-	shareResource := operator.ClusterSubResources{Cluster: cluster, Client: r.Client, Log: r.Log}
+	shareResource := operator2.ClusterSubResources{Cluster: cluster, Client: r.Client, Log: r.Log}
 
-	err := options.SyncShareResources(r.Client, options.ReferenceToOwner(r.OwnerReference, cluster), []options.ResourcesCreator{
+	err := options2.SyncShareResources(r.Client, options2.ReferenceToOwner(r.OwnerReference, cluster), []options2.ResourcesCreator{
 		shareResource.CreateHeadlessService,
 		shareResource.CreateLog4JQuietConfigMap,
 		shareResource.CreateLog4JConfigMap,
@@ -58,8 +58,8 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 	}
 	// 按照顺序去创建 sts 资源
 	for serverIndex := 0; serverIndex < nums; serverIndex++ {
-		opts := make([]options.StatefulSetResourcesOpts, 0)
-		setName := options.GetClusterReplicaSetName(cluster.Name, serverIndex)
+		opts := make([]options2.StatefulSetResourcesOpts, 0)
+		setName := options2.GetClusterReplicaSetName(cluster.Name, serverIndex)
 		// 防止set重复检查
 		if setFlag[setName] {
 			continue
@@ -68,7 +68,7 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 		set := &v1.StatefulSet{}
 		err = r.Get(ctx, types.NamespacedName{Name: setName, Namespace: cluster.Namespace}, set)
 		if errors.IsNotFound(err) {
-			err = options.SyncShareResources(r.Client, options.ReferenceToOwner(r.OwnerReference, cluster),
+			err = options2.SyncShareResources(r.Client, options2.ReferenceToOwner(r.OwnerReference, cluster),
 				shareResource.CreateReplicaHeadlessService(setName),
 				shareResource.CreateDynamicConfigMap(ctx, serverIndex))
 			if err != nil {
@@ -78,18 +78,18 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			log.Info("statefulset not found, begin create",
 				"StatefulSet.Name", setName, "StatefulSet.Namespace", cluster.Namespace)
 			opts = append(opts,
-				options.WithStatefulSetCommon(setName, cluster.Namespace, setReplica, operator.NewClusterLabel(cluster), operator.NewClusterAnnotations(cluster)),
-				operator.WithInitContainer(cluster, cluster.Spec.Image, serverIndex),
-				operator.WithZookeeperContainer(cluster, cluster.Spec.Image, serverIndex),
-				options.WithShareProcess(),
-				options.WithPVCSelector(r.Client),
-				options.WithStatefulSetPvc(cluster),
+				options2.WithStatefulSetCommon(setName, cluster.Namespace, setReplica, operator2.NewClusterLabel(cluster), operator2.NewClusterAnnotations(cluster)),
+				operator2.WithInitContainer(cluster, cluster.Spec.Image, serverIndex),
+				operator2.WithZookeeperContainer(cluster, cluster.Spec.Image, serverIndex),
+				options2.WithShareProcess(),
+				options2.WithPVCSelector(r.Client),
+				options2.WithStatefulSetPvc(cluster),
 				//options.WithCustomerAnnotation(cluster.Annotations),
 				//options.WithCustomerNodeLabelAnnotation(cluster.Annotations),
-				options.WithOwnerReference(options.ReferenceToOwner(r.OwnerReference, cluster)),
+				options2.WithOwnerReference(options2.ReferenceToOwner(r.OwnerReference, cluster)),
 			)
 			// generate statefulset object
-			newSet, err := options.NewStatefulSet(opts...)
+			newSet, err := options2.NewStatefulSet(opts...)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			if err = r.Get(ctx, client.ObjectKey{Name: newSet.Name, Namespace: newSet.Namespace}, set); err != nil {
 				return err
 			}
-			if set.Annotations[utils.AnnotationsRoleKey] != "" && set.Annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleNotReady {
+			if set.Annotations[utils2.AnnotationsRoleKey] != "" && set.Annotations[utils2.AnnotationsRoleKey] != utils2.AnnotationsRoleNotReady {
 				continue
 			}
 			break
@@ -133,7 +133,7 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 		if err = r.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet); err != nil {
 			return err
 		}
-		if newSet.Annotations[utils.AnnotationsRoleKey] != "" && newSet.Annotations[utils.AnnotationsRoleKey] != utils.AnnotationsRoleNotReady {
+		if newSet.Annotations[utils2.AnnotationsRoleKey] != "" && newSet.Annotations[utils2.AnnotationsRoleKey] != utils2.AnnotationsRoleNotReady {
 			continue
 		}
 		break
@@ -152,7 +152,7 @@ func (r *ZookeeperClusterReconciler) UpdateCluster(ctx context.Context, cluster 
 		Name:      cluster.Name,
 	}, newCluster)
 	newCluster = newCluster.DeepCopy()
-	zookeeperStatus := operator.ZookeeperClusterResourcesStatus{
+	zookeeperStatus := operator2.ZookeeperClusterResourcesStatus{
 		RemoteRequest: r.RemoteRequest,
 		Client:        r.Client,
 		Log:           r.Log.WithName("ZookeeperResourcesStatus"),
@@ -173,12 +173,12 @@ func (r *ZookeeperClusterReconciler) DoSyncSetUpdate(ctx context.Context, set *v
 	updateFlag = false
 	newSet := set.DeepCopy()
 	//replicas := cluster.Spec.Replicas
-	checker := &operator.ZookeeperChecker{
+	checker := &operator2.ZookeeperChecker{
 		Client: r.Client,
 		Log:    r.Log.WithName("ZookeeperChecker"),
 	}
 
-	err = operator.DoZookeeperUpdate(cluster, newSet, &updateFlag,
+	err = operator2.DoZookeeperUpdate(cluster, newSet, &updateFlag,
 		checker.CheckVolumeSizeChangedApplyToPVC(),
 		checker.CheckResourceLimitChanged())
 	//checker.CheckReplicasChanged(replices),
@@ -189,8 +189,8 @@ func (r *ZookeeperClusterReconciler) DoSyncSetUpdate(ctx context.Context, set *v
 	if updateFlag {
 		newSet.Status.ReadyReplicas = 0
 		newSet.Status.Replicas = 0
-		annotations := utils.CopyMap(newSet.Annotations)
-		annotations[utils.AnnotationsRoleKey] = utils.AnnotationsRoleNotReady
+		annotations := utils2.CopyMap(newSet.Annotations)
+		annotations[utils2.AnnotationsRoleKey] = utils2.AnnotationsRoleNotReady
 		newSet.Annotations = annotations
 		newSet.Spec.Template.Annotations = annotations
 		if err = r.Client.Update(ctx, newSet); err != nil {
@@ -204,7 +204,7 @@ func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context
 	log := r.Log.WithValues("zookeeper cluster", "delete replica")
 	g, _ := errgroup.WithContext(ctx)
 	setList := &v1.StatefulSetList{}
-	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
+	matchLabels := utils2.CopyMap(operator2.NewClusterLabel(cluster))
 	setOpts := []client.ListOption{
 		client.InNamespace(cluster.Namespace),
 		client.MatchingLabels(matchLabels),
@@ -219,7 +219,7 @@ func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context
 		return nil
 	}
 	for i := start; end > 0 && i < end; i++ {
-		setName := options.GetClusterReplicaSetName(cluster.Name, i)
+		setName := options2.GetClusterReplicaSetName(cluster.Name, i)
 		// 先执行清除  后执行 删除 sts 操作
 		removeCmd := []string{
 			"sh",
@@ -264,11 +264,11 @@ func (r *ZookeeperClusterReconciler) deleteReplicasResources(ctx context.Context
 }
 
 func (r *ZookeeperClusterReconciler) Exec(ctx context.Context, podName string, cluster *zookeeperv1.ZookeeperCluster, cmd []string) (string, error) {
-	firstPodName := options.GetClusterReplicaSetName(cluster.Name, 0) + "-0"
+	firstPodName := options2.GetClusterReplicaSetName(cluster.Name, 0) + "-0"
 	if podName == "" {
 		podName = firstPodName
 	}
-	stdout, stderr, err := r.RemoteRequest.Exec(ctx, cluster.Namespace, podName, utils.ZookeeperContainerName, cmd)
+	stdout, stderr, err := r.RemoteRequest.Exec(ctx, cluster.Namespace, podName, utils2.ZookeeperContainerName, cmd)
 	if err != nil {
 		return "", fmt.Errorf("exec cmd %v failed, %v", cmd, err)
 	}
@@ -281,7 +281,7 @@ func (r *ZookeeperClusterReconciler) Exec(ctx context.Context, podName string, c
 func (r *ZookeeperClusterReconciler) FindLeaderPodName(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster) (string, error) {
 	log := r.Log.WithValues("zookeeper cluster ", "find leader pod")
 	podList := &corev1.PodList{}
-	matchLabels := utils.CopyMap(operator.NewClusterLabel(cluster))
+	matchLabels := utils2.CopyMap(operator2.NewClusterLabel(cluster))
 	setOpts := []client.ListOption{
 		client.InNamespace(cluster.Namespace),
 		client.MatchingLabels(matchLabels),
@@ -335,7 +335,7 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 		}
 	}
 	var allServersHosts []string
-	for _, line := range strings.Split(operator.WithDynamicConfig(cluster, serverIndex), "\n") {
+	for _, line := range strings.Split(operator2.WithDynamicConfig(cluster, serverIndex), "\n") {
 		if strings.Contains(line, "server.") {
 			allServersHosts = append(allServersHosts, strings.Split(line, ";")[0])
 		}
@@ -346,8 +346,8 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 				"sh",
 				"-c",
 				fmt.Sprintf("zkCli.sh reconfig -add %s",
-					options.GetServerDomain(
-						options.GetClusterReplicaSetName(cluster.Name, serverIndex),
+					options2.GetServerDomain(
+						options2.GetClusterReplicaSetName(cluster.Name, serverIndex),
 						cluster.Namespace, serverIndex, true)),
 			}
 			_, err = r.Exec(timeOutCtx, leaderPodName, cluster, addCmd)
@@ -415,14 +415,14 @@ func (r *ZookeeperClusterReconciler) reConfigCluster(ctx context.Context, cluste
 
 func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluster *zookeeperv1.ZookeeperCluster, setName string, serverIndex int) error {
 	log := r.Log.WithValues("zookeeper Cluster", "pollStatefulSet")
-	if utils.IsContextDone(ctx) {
+	if utils2.IsContextDone(ctx) {
 		log.V(2).Info("ctx is done")
 		return nil
 	}
 	opts := NewStatefulSetPollOptions()
 	start := time.Now()
 	for {
-		if utils.IsContextDone(ctx) {
+		if utils2.IsContextDone(ctx) {
 			log.V(2).Info("ctx is done")
 			return nil
 		}
@@ -471,7 +471,7 @@ func (r *ZookeeperClusterReconciler) changeRoleAnnotation(ctx context.Context, s
 	if err := r.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet); err != nil {
 		return nil
 	}
-	newSet.Annotations[utils.AnnotationsRoleKey] = role
+	newSet.Annotations[utils2.AnnotationsRoleKey] = role
 	return r.Client.Update(ctx, newSet)
 }
 

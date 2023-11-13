@@ -18,7 +18,6 @@ package main
 
 import (
 	"flag"
-	"github.com/qilitang/zookeeper-operator/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"os"
@@ -37,7 +36,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	"github.com/qilitang/zookeeper-operator/controllers"
+
+	"github.com/qilitang/zookeeper-operator/pkg/controllers"
+	"github.com/qilitang/zookeeper-operator/pkg/utils"
 	//+kubebuilder:scaffold:imports
 )
 
