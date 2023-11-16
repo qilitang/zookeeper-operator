@@ -97,13 +97,9 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			if err := r.Create(ctx, newSet); err != nil && !errors.IsAlreadyExists(err) {
 				return err
 			}
-			_, loader := r.StatefulSetQueue.LoadOrStore(newSet.Name, true)
-			if !loader {
-				go func() {
-					if err := r.pollStatefulSet(ctx, cluster, newSet.Name, serverIndex); err != nil {
-						log.Error(err, "pollStatefulSet failed", "statefulSet.Name", newSet.Name)
-					}
-				}()
+			//_, loader := r.StatefulSetQueue.LoadOrStore(newSet.Name, true)
+			if err := r.pollStatefulSet(ctx, cluster, newSet.Name, serverIndex); err != nil {
+				log.Error(err, "pollStatefulSet failed", "statefulSet.Name", newSet.Name)
 			}
 			if err = r.Get(ctx, client.ObjectKey{Name: newSet.Name, Namespace: newSet.Namespace}, set); err != nil {
 				return err
@@ -121,13 +117,8 @@ func (r *ZookeeperClusterReconciler) syncReplicas(ctx context.Context, cluster *
 			log.Info("success update statefulset", "Statefulse.Name", set.Name)
 			break
 		}
-		_, loader := r.StatefulSetQueue.LoadOrStore(set.Name, true)
-		if !loader {
-			go func() {
-				if err := r.pollStatefulSet(ctx, cluster, set.Name, serverIndex); err != nil {
-					log.Error(err, "pollStatefulSet failed", "statefulSet.Name", set.Name)
-				}
-			}()
+		if err := r.pollStatefulSet(ctx, cluster, set.Name, serverIndex); err != nil {
+			log.Error(err, "pollStatefulSet failed", "statefulSet.Name", set.Name)
 		}
 		newSet := &v1.StatefulSet{}
 		if err = r.Get(ctx, client.ObjectKey{Name: set.Name, Namespace: set.Namespace}, newSet); err != nil {
@@ -444,7 +435,7 @@ func (r *ZookeeperClusterReconciler) pollStatefulSet(ctx context.Context, cluste
 						log.Info("Failed to reconfig cluster, wait try next", "StatefulSet.Name", setName)
 						continue
 					}
-					r.StatefulSetQueue.Delete(newSet.Name)
+					log.Info("reConfig cluster success", "StatefulSet.Name", setName)
 					if err := r.changeRoleAnnotation(ctx, newSet, role); err == nil {
 						return nil
 					}

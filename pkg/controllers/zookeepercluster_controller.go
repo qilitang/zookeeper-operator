@@ -30,6 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sync"
@@ -80,13 +81,13 @@ func (r *ZookeeperClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		log.Info(fmt.Sprintf("cluster %s has be deleted, skip", cluster.Name))
 		return ctrl.Result{}, nil
 	}
+	if err := r.UpdateCluster(ctx, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if err := r.syncReplicas(ctx, cluster); err != nil {
 		log.Info(fmt.Sprintf("cluster %s sync replica failed: %v, after 5s retry", cluster.Name, err))
 		return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
-	}
-
-	if err := r.UpdateCluster(ctx, cluster); err != nil {
-		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }
@@ -111,5 +112,6 @@ func (r *ZookeeperClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zookeeperv1.ZookeeperCluster{}).
 		Owns(&appsv1.StatefulSet{}, builder.WithPredicates(r.setUpdatePredicate())).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 8}).
 		Complete(r)
 }

@@ -70,11 +70,12 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 			Client:        t.Client,
 			Log:           t.Log.WithName("StatefulSetStatus"),
 		}
-
-		if setStatus.IsReady() {
+		if status.Members == nil {
 			if status.Members == nil {
 				status.Members = make(map[string]string, 0)
 			}
+		}
+		if setStatus.IsReady() {
 			_, ready := setStatus.IsRoleReady()
 			if ready {
 				status.ReadyReplicas++
@@ -82,6 +83,8 @@ func (t *ZookeeperClusterResourcesStatus) UpdateStatus() error {
 			} else {
 				status.Members[setStatus.StatefulSet.Name] = "not-ready"
 			}
+		} else {
+			status.Members[setStatus.StatefulSet.Name] = "unavailable"
 		}
 	}
 

@@ -10,7 +10,10 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"strings"
+	"time"
 )
+
+const runExecTimeout = 10
 
 type RemoteRequest struct {
 	K8sConfig *rest.Config
@@ -18,6 +21,8 @@ type RemoteRequest struct {
 }
 
 func (e *RemoteRequest) Exec(ctx context.Context, namespace, podName, containerName string, cmd []string) (string, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), runExecTimeout*time.Second)
+	defer cancel()
 	req := e.ClientSet.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(podName).

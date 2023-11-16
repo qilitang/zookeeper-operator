@@ -74,10 +74,6 @@ func (t ClusterSubResources) CreateService(clusterServiceType string) options2.R
 			return nil, canUpdate, err
 		}
 		service := baseService.(*corev1.Service)
-		// Choose a service will be exposed
-		if options2.GetIngressType(t.Cluster.Annotations) != "" {
-			clusterServiceType = options2.GetIngressType(t.Cluster.Annotations)
-		}
 		service.Annotations = t.Cluster.DeepCopy().Annotations
 		switch clusterServiceType {
 		case options2.NodePortName:

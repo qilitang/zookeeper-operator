@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
-	"time"
 )
 
 type StatefulSetResourcesStatus struct {
@@ -65,14 +64,12 @@ func (t StatefulSetResourcesStatus) IsReady() bool {
 }
 
 func (t StatefulSetResourcesStatus) IsRoleReady() (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), runExecTimeout*time.Second)
-	defer cancel()
 	cmd := []string{
 		"sh",
 		"-c",
 		"echo stat | nc localhost 2181",
 	}
-	stdout, stderr, err := t.RemoteRequest.Exec(ctx, t.StatefulSet.Namespace, t.StatefulSet.Name+"-0", utils2.ZookeeperContainerName, cmd)
+	stdout, stderr, err := t.RemoteRequest.Exec(context.Background(), t.StatefulSet.Namespace, t.StatefulSet.Name+"-0", utils2.ZookeeperContainerName, cmd)
 	if err != nil {
 		return "", false
 	}

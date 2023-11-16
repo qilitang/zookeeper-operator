@@ -24,29 +24,11 @@ import (
 )
 
 const (
-	IngressKey                 = "squids.io/ingress"
-	NginxIngressName           = "nginx-ingress"
-	HAProxyIngressName         = "haproxy-ingress"
-	NodePortName               = "nodeport"
-	HAProxyIngressConfigMapTCP = "haproxy-ingress-tcp"
-
-	ProxyProtocolIn  = "proxy/proxyProtocolIn"  // 代理将解析接入流中的透传协议
-	ProxyProtocolOut = "proxy/proxyProtocolOut" // 代理将透传协议发送到后端服务(需要后端服务解析)
+	IngressKey         = "squids.io/ingress"
+	NginxIngressName   = "nginx-ingress"
+	HAProxyIngressName = "haproxy-ingress"
+	NodePortName       = "nodeport"
 )
-
-func WithIngressAnnotation(annotation map[string]string, ingressType string) {
-	annotation[IngressKey] = NodePortName
-	if ingressType != "" {
-		annotation[IngressKey] = ingressType
-	}
-}
-
-/*
-通知proxy向下游服务发送proxyprotocol
-*/
-func WithProxyProtocolOut(annotaion map[string]string) {
-	annotaion[ProxyProtocolOut] = ""
-}
 
 func GetIngressType(annotation map[string]string) string {
 	if annotation == nil {

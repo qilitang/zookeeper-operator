@@ -22,8 +22,6 @@ import (
 	"k8s.io/utils/pointer"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-	"sync"
-
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -104,11 +102,10 @@ func main() {
 		setupLog.Error(err, "unable to get remoteRequest")
 	}
 	if err = (&controllers.ZookeeperClusterReconciler{
-		Log:              ctrl.Log.WithName("controllers").WithName("ZookeeperCluster"),
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		RemoteRequest:    remoteRequest,
-		StatefulSetQueue: &sync.Map{},
+		Log:           ctrl.Log.WithName("controllers").WithName("ZookeeperCluster"),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		RemoteRequest: remoteRequest,
 		OwnerReference: metav1.OwnerReference{
 			APIVersion:         gvk.GroupVersion().String(),
 			Kind:               gvk.Kind,
