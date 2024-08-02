@@ -1,32 +1,23 @@
----
+# permissions for end users to view zookeeperclusters.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: manager-role
+  labels:
+    app.kubernetes.io/name: zookeeper-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: zookeepercluster-viewer-role
 rules:
 - apiGroups:
   - qilitang.top
   resources:
   - zookeeperclusters
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - qilitang.top
-  resources:
-  - zookeeperclusters/finalizers
-  verbs:
-  - update
 - apiGroups:
   - qilitang.top
   resources:
   - zookeeperclusters/status
   verbs:
   - get
-  - patch
-  - update

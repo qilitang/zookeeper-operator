@@ -3,26 +3,18 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: namespace
-    app.kubernetes.io/instance: system
-    app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: zookeeper-operator
-    app.kubernetes.io/part-of: zookeeper-operator
+    app.kubernetes.io/name: zookeeper-operator
     app.kubernetes.io/managed-by: kustomize
-  name: zookeeper
+  name: system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: controller-manager
-  namespace: zookeeper
+  namespace: system
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: deployment
-    app.kubernetes.io/instance: controller-manager
-    app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: zookeeper-operator
-    app.kubernetes.io/part-of: zookeeper-operator
+    app.kubernetes.io/name: zookeeper-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:
@@ -68,13 +60,16 @@ spec:
       containers:
       - command:
         - /manager
-        image: registry.cn-hangzhou.aliyuncs.com/zyz_k8s/zookeeper-operator:latest
+        args:
+          - --leader-elect
+          - --health-probe-bind-address=:8081
+        image: controller:latest
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
-              - "ALL"
+            - "ALL"
         livenessProbe:
           httpGet:
             path: /healthz

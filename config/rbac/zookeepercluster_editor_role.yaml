@@ -1,8 +1,11 @@
----
+# permissions for end users to edit zookeeperclusters.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: manager-role
+  labels:
+    app.kubernetes.io/name: zookeeper-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: zookeepercluster-editor-role
 rules:
 - apiGroups:
   - qilitang.top
@@ -19,14 +22,6 @@ rules:
 - apiGroups:
   - qilitang.top
   resources:
-  - zookeeperclusters/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - qilitang.top
-  resources:
   - zookeeperclusters/status
   verbs:
   - get
-  - patch
-  - update

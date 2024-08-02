@@ -4,17 +4,16 @@
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: qilitang.top
 layout:
-- go.kubebuilder.io/v3
+- go.kubebuilder.io/v4
 projectName: zookeeper-operator
-repo: zookeeper-operator
+repo: github.com/qilitang/zookeeper-operator
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: qilitang.top
-  group: zookeeper
   kind: ZookeeperCluster
-  path: zookeeper-operator/api/v1
+  path: github.com/qilitang/zookeeper-operator/api/v1
   version: v1
 version: "3"

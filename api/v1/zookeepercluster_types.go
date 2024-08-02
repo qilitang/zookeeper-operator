@@ -1,5 +1,5 @@
 /*
-Copyright 2023.
+Copyright 2024 qilitang.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -37,7 +37,11 @@ type ZookeeperClusterSpec struct {
 
 	// Image is the  container image. default is zookeeper:3.5
 	Image string `json:"image"`
-	//
+
+	// Stop zookeeper cluster, default is false
+	Stop bool `json:"stop,omitempty"`
+
+	// zookeeper config
 	ZookeeperCustomConf ZookeeperConfig `json:"config,omitempty"`
 
 	// ZookeeperResources describes the cluster database compute resource requirements
@@ -208,7 +212,7 @@ type ClusterStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=zookeeper
+
 // ZookeeperCluster is the Schema for the zookeeperclusters API
 type ZookeeperCluster struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -218,7 +222,7 @@ type ZookeeperCluster struct {
 	Status ZookeeperClusterStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // ZookeeperClusterList contains a list of ZookeeperCluster
 type ZookeeperClusterList struct {
