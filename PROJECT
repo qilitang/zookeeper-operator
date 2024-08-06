@@ -12,7 +12,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: qilitang.top
+  domain: zookeeper.qilitang.top
   kind: ZookeeperCluster
   path: github.com/qilitang/zookeeper-operator/api/v1
   version: v1

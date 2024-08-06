@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.15.0
-  name: zookeeperclusters.qilitang.top
+  name: zookeeperclusters.zookeeper.qilitang.top
 spec:
-  group: qilitang.top
+  group: zookeeper.qilitang.top
   names:
     kind: ZookeeperCluster
     listKind: ZookeeperClusterList

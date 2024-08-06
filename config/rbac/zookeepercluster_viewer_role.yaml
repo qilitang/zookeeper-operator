@@ -8,7 +8,7 @@ metadata:
   name: zookeepercluster-viewer-role
 rules:
 - apiGroups:
-  - qilitang.top
+  - zookeeper.qilitang.top
   resources:
   - zookeeperclusters
   verbs:
@@ -16,7 +16,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - qilitang.top
+  - zookeeper.qilitang.top
   resources:
   - zookeeperclusters/status
   verbs:

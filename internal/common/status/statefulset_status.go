@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
-	utils2 "github.com/qilitang/zookeeper-operator/internal/utils"
+	"github.com/qilitang/zookeeper-operator/internal/utils"
 	"k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -30,7 +30,7 @@ import (
 )
 
 type StatefulSetResourcesStatus struct {
-	RemoteRequest *utils2.RemoteRequest
+	RemoteRequest *utils.RemoteRequest
 	StatefulSet   *v1.StatefulSet
 	client.Client
 	Log logr.Logger
@@ -69,7 +69,7 @@ func (t StatefulSetResourcesStatus) IsRoleReady() (string, bool) {
 		"-c",
 		"echo stat | nc localhost 2181",
 	}
-	stdout, stderr, err := t.RemoteRequest.Exec(context.Background(), t.StatefulSet.Namespace, t.StatefulSet.Name+"-0", utils2.ZookeeperContainerName, cmd)
+	stdout, stderr, err := t.RemoteRequest.Exec(context.Background(), t.StatefulSet.Namespace, t.StatefulSet.Name+"-0", utils.ZookeeperContainerName, cmd)
 	if err != nil {
 		return "", false
 	}
@@ -77,10 +77,10 @@ func (t StatefulSetResourcesStatus) IsRoleReady() (string, bool) {
 		return "", false
 	}
 	if strings.Contains(stdout, "Mode: leader") {
-		return utils2.AnnotationsRoleLeader, true
+		return utils.AnnotationsRoleLeader, true
 
 	} else if strings.Contains(stdout, "Mode: follower") {
-		return utils2.AnnotationsRoleFollower, true
+		return utils.AnnotationsRoleFollower, true
 	}
 	return "", false
 }

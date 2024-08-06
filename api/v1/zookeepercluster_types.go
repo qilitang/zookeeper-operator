@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	"github.com/qilitang/zookeeper-operator/internal/common/status"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -175,39 +176,7 @@ type StorageSpec struct {
 type ZookeeperClusterStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	ClusterStatus `json:",inline"`
-}
-
-// +kubebuilder:object:generate:root=true
-type ClusterStatus struct {
-
-	// replicas is the number of Pods created by the StatefulSet controller.
-	Replicas int32 `json:"replicas" protobuf:"varint,2,opt,name=replicas"`
-
-	// readyReplicas is the number of Pods created by the StatefulSet controller that have a Ready Condition.
-	ReadyReplicas int32 `json:"readyReplicas,omitempty" protobuf:"varint,3,opt,name=readyReplicas"`
-
-	// updatedReplicas is the number of Pods created by the StatefulSet controller from the StatefulSet version
-	// indicated by updateRevision.
-	UpdatingReplicas int32 `json:"updatedReplicas,omitempty" protobuf:"varint,5,opt,name=updatedReplicas"`
-
-	// currentRevision, if not empty, indicates the version of the StatefulSet used to generate Pods in the
-	// sequence [0,currentReplicas).
-	CurrentRevision string `json:"currentRevision,omitempty" protobuf:"bytes,6,opt,name=currentRevision"`
-
-	// updateRevision, if not empty, indicates the version of the StatefulSet used to generate Pods in the sequence
-	// [replicas-updatedReplicas,replicas)
-	UpdateRevision string `json:"updateRevision,omitempty" protobuf:"bytes,7,opt,name=updateRevision"`
-
-	Actions map[string]string `json:"actions,omitempty" yaml:"actions,omitempty" protobuf:"bytes,8,opt,name=actions"`
-
-	Members map[string]string `json:"members,omitempty" yaml:"members,omitempty" protobuf:"bytes,8,opt,name=members"`
-
-	CustomStatus  string `json:"customStatus,omitempty"`
-	FSMStatus     string `json:"fsmStatus,omitempty"`
-	StatusDetails string `json:"statusDetails,omitempty"`
-
-	PermitRollback bool `json:"PermitRollback"`
+	status.ClusterStatus `json:",inline"`
 }
 
 // +kubebuilder:object:root=true

@@ -8,7 +8,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"strings"
 	"time"
 )
@@ -54,12 +54,12 @@ func (e *RemoteRequest) Exec(ctx context.Context, namespace, podName, containerN
 }
 
 func NewRemoteRequest() (*RemoteRequest, error) {
-	k8sCli, err := kubernetes.NewForConfig(config.GetConfigOrDie())
+	k8sCli, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
 	if err != nil {
 		return nil, err
 	}
 	return &RemoteRequest{
-		K8sConfig: config.GetConfigOrDie(),
+		K8sConfig: ctrl.GetConfigOrDie(),
 		ClientSet: k8sCli,
 	}, nil
 }

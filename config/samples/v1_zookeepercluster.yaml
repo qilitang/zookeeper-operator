@@ -1,9 +1,27 @@
-apiVersion: qilitang.top/v1
+apiVersion: zookeeper.qilitang.top/v1
 kind: ZookeeperCluster
 metadata:
   labels:
     app.kubernetes.io/name: zookeeper-operator
     app.kubernetes.io/managed-by: kustomize
-  name: zookeepercluster-sample
+    app.kubernetes.io/created-by: zookeeper-operator
+  name: zk4
 spec:
-  # TODO(user): Add fields here
+  replicas: 3
+  image: "registry.cn-hangzhou.aliyuncs.com/squids/zookeeper:3.5.10"
+  config:
+    initLimit: 2000
+    tickTime: 200
+    syncLimit: 8000
+    quorumListenOnAllIPs: true
+  zookeeperResources:
+    resources:
+      limits:
+        cpu: "2"
+        memory: 2Gi
+      requests:
+        cpu: "1"
+        memory: 1Gi
+    storage:
+      size: 3Gi
+      storageClass: "csi-localpv"

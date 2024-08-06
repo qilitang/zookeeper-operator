@@ -19,7 +19,10 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/pointer"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -35,8 +38,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	qilitangtopv1 "github.com/qilitang/zookeeper-operator/api/v1"
+	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
 	"github.com/qilitang/zookeeper-operator/internal/controller"
+	"github.com/qilitang/zookeeper-operator/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,7 +52,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(qilitangtopv1.AddToScheme(scheme))
+	utilruntime.Must(zookeeperv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -143,10 +147,26 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+	remoteRequest, err := utils.NewRemoteRequest()
+	if err != nil {
+		setupLog.Error(err, "unable to get remoteRequest")
+	}
+	gvk, err := apiutil.GVKForObject(&zookeeperv1.ZookeeperCluster{}, mgr.GetScheme())
+	if err != nil {
+		setupLog.Error(err, "unable to get gvk")
+		os.Exit(1)
+	}
 
 	if err = (&controller.ZookeeperClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		RemoteRequest: remoteRequest,
+		OwnerReference: metav1.OwnerReference{
+			APIVersion:         gvk.GroupVersion().String(),
+			Kind:               gvk.GroupKind().String(),
+			Controller:         pointer.Bool(true),
+			BlockOwnerDeletion: pointer.Bool(true),
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ZookeeperCluster")
 		os.Exit(1)

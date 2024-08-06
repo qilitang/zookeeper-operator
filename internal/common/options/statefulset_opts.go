@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
-	utils2 "github.com/qilitang/zookeeper-operator/internal/utils"
+	"github.com/qilitang/zookeeper-operator/internal/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
@@ -84,10 +84,10 @@ func WithParallel() StatefulSetResourcesOpts {
 func WithStatefulSetCommon(name, nameSpace string, replica int32, labels, annotations map[string]string) StatefulSetResourcesOpts {
 	return func(set *appsv1.StatefulSet) error {
 
-		setLabels := utils2.CopyMap(labels)
-		setLabels[utils2.SetName] = name
+		setLabels := utils.CopyMap(labels)
+		setLabels[utils.SetName] = name
 		// pod 上区分出主备从
-		podLabels := utils2.CopyMap(setLabels)
+		podLabels := utils.CopyMap(setLabels)
 
 		*set = appsv1.StatefulSet{
 			TypeMeta: metav1.TypeMeta{
@@ -253,7 +253,7 @@ func WithPVCSelector(client client.Client) StatefulSetResourcesOpts {
 		if sc.Annotations == nil {
 			continue
 		}
-		if sc.Annotations[utils2.LabelKey] == utils2.LabelValue {
+		if sc.Annotations[utils.LabelKey] == utils.LabelValue {
 			localSc = append(localSc, sc.Name)
 		}
 	}
@@ -278,7 +278,7 @@ func WithPVCSelector(client client.Client) StatefulSetResourcesOpts {
 				set.Spec.VolumeClaimTemplates[i].Spec.Selector.MatchLabels = make(map[string]string, 0)
 			}
 			// 确保所有的pvc都有一个selector，并且这个selector不对应任何pv。等待localpv-controller来重建
-			set.Spec.VolumeClaimTemplates[i].Spec.Selector.MatchLabels[utils2.LabelKey] = "wait-to-recreate"
+			set.Spec.VolumeClaimTemplates[i].Spec.Selector.MatchLabels[utils.LabelKey] = "wait-to-recreate"
 		}
 		return nil
 	}

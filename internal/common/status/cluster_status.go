@@ -16,11 +16,10 @@
 package status
 
 import (
-	zookeeperv1 "github.com/qilitang/zookeeper-operator/api/v1"
 	"strings"
 )
 
-func ChangeClusterStatus(clusterStatus *zookeeperv1.ClusterStatus, flag ActionBranch) error {
+func ChangeClusterStatus(clusterStatus *ClusterStatus, flag ActionBranch) error {
 
 	if flag == ActionUpdate { // 发起更新时，记录标志
 		clusterStatus.PermitRollback = true
@@ -41,7 +40,7 @@ func ChangeClusterStatus(clusterStatus *zookeeperv1.ClusterStatus, flag ActionBr
 	return nil
 }
 
-func SetClusterStatus(clusterStatus *zookeeperv1.ClusterStatus, newStatus string) error {
+func SetClusterStatus(clusterStatus *ClusterStatus, newStatus string) error {
 	clusterStatus.FSMStatus = AppendStatus(newStatus, clusterStatus.FSMStatus)
 	clusterStatus.CustomStatus = StatusDescription[newStatus[:1]]
 	return nil
